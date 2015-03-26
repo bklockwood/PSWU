@@ -37,7 +37,7 @@ function Install-AllUpdates {
             [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
             Write-Log $Logfile $UpdateReport  
             Write-Log $Logfile "Downloading and installing $($ISearchResult.Updates.Count) updates."
-            $Install = Install-Update -ISearchResult $ISearchResult -OneByOne -Verbose
+            $Install = Install-Update -ISearchResult $ISearchResult -Verbose
             Write-Log $Logfile "Done installing updates. Restarting script to check for more."
             Install-AllUpdates
         } else {
@@ -251,7 +251,7 @@ Function Show-UpdateList
     }
     Write-Output "$($ISearchResult.Updates.Count) updates available:"
     $ISearchResult.Updates |
-    Select @{n='KB';e={$_.KbArticleIds[-1]}},
+    Select @{n='KB';e={$_.KbArticleIds}},
         #Update type 1 is software, type 2 is driver. http://goo.gl/VvV7tt
         @{n='T';e={if ($_.Type -eq 1) {"S"} ElseIf ($_.Type -eq 2) {"D"}}},
         @{n='H';e={if ($_.isHidden) {"H"} Else {"-"}}},
