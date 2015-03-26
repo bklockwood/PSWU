@@ -1,4 +1,4 @@
-#requires -version 3.0
+#requires -version 2.0
 
 function Install-AllUpdates {
     #flowchart: http://i.imgur.com/NSV8AH2.png
