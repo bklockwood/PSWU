@@ -169,6 +169,46 @@ function CheckForScheduledTask ($TaskName)
 
 <#
 .Synopsis
+   Hides or un-hides updates as specified by KB article number (KBID).
+.PARAMETER ISearchResult
+   ISearchResult is delivered from Get-UpdateList and is a COM object.
+   (http://goo.gl/pvnUSM)
+.PARAMETER KBID
+   One or more KBIDs to hide or un-hide.
+.PARAMETER UNHIDE
+   Switch parameter. If used, the specified KBID(s) will be UN-hidden.
+.EXAMPLE
+   Yo dawg, I herd u liek snover shells.
+#>
+function Hide-Updates
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0)]$ISearchResult,
+        [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$false,Position=1)][string[]]$KBID,
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$false,Position=2)][switch]$UnHide
+    )
+
+    Process
+    {
+        if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
+            Write-Error "$ISearchResult iss not an ISearchResult object (http://goo.gl/pvnUSM)"
+            break
+        }
+        foreach ($u in $ISearchResult.Updates){
+            if ($UnHide) {
+                if ($KBID -contains $($u.KbArticleIDs)) {$u.isHidden = $false}
+            } else {
+                if ($KBID -contains $($u.KbArticleIDs)) {$u.isHidden = $true}
+            }
+        }
+        $ISearchResult
+    }
+}
+
+<#
+.Synopsis
 Gets list of updates from Windows Update.
 .DESCRIPTION
    
@@ -244,7 +284,7 @@ They don't sort properly;
 Function Show-UpdateList 
 {
     [Cmdletbinding()]
-    Param([Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)] $ISearchResult)
+    Param([Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)]$ISearchResult)
     if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
         Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
         break
