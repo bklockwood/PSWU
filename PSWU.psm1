@@ -1,4 +1,4 @@
-#requires -version 2.0
+#requires -version 3.0
 
 function Install-AllUpdates {
     #flowchart: http://i.imgur.com/NSV8AH2.png
@@ -121,7 +121,9 @@ function Test-AdminPrivs ()
 .Synopsis
    Checks whether reboot is needed due to Windows Updates. Returns $true or $false
 
-   TODO test for other reboot conditions.
+.Note
+    Thanks to Brian Wilhite who documented several of these check methods at
+    http://goo.gl/JKZZY and http://goo.gl/OJLSib
 .EXAMPLE
    Test-RebootNeeded
 #>
@@ -133,8 +135,20 @@ function Test-RebootNeeded
 
     Process
     {
+        $NeedsReboot = $false
+        #Windows Update
         $SystemInfo= New-Object -ComObject "Microsoft.Update.SystemInfo"
-        $SystemInfo.RebootRequired
+        if ($SystemInfo.RebootRequired) {$NeedsReboot = $true}
+        #Windows Update, again
+        $WURegKey = get-item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update"
+        if ($WURegKey.Property -contains "RebootRequired") {$NeedsReboot = $true}
+        #Component Based Servicing
+        $CBSRegkey = get-item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing"
+        if ($CBSRegkey.Property -contains "RebootRequired") {$NeedsReboot = $true}
+        #Pending File Rename Operations
+        $PFRORegkey = get-item "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\FileRenameOperations"
+        if ($PFRORegkey.Property) {$NeedsReboot = $true}
+        $NeedsReboot
     }
 }
 
@@ -210,9 +224,8 @@ function Hide-Updates
 <#
 .Synopsis
 Gets list of updates from Windows Update.
-.DESCRIPTION
    
-.PARAMETER Criteria
+.PARAMETER  Criteria
 The search criteria, see http://goo.gl/7nZSPs
 Left at default, it will return all updates that have not yet
 been installed, whether software or driver. Including Hidden
