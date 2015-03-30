@@ -35,10 +35,13 @@ function Install-AllUpdates {
 
     if ($ISearchResult.ResultCode -eq 2) {
         Write-Log $Logfile "Successfully retreived update list"
-        if ($ISearchResult.Updates.Count -gt 0) {
+        $NonHiddenUpdateCount = ($ISearchResult.Updates | Where-Object {$_.IsHidden -eq $false}).Count
+        #if ($ISearchResult.Updates.Count -gt 0) {
+        if ($NonHiddenUpdateCount -gt 0) {
+            Write-Log $Logfile "Non-hidden updates: $NonHiddenUpdateCount"
             [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
             Write-Log $Logfile $UpdateReport  
-            Write-Log $Logfile "Downloading and installing $($ISearchResult.Updates.Count) updates."
+            Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
             $Install = Install-Update -ISearchResult $ISearchResult -Verbose
             Write-Log $Logfile "Done installing updates. Restarting script to check for more."
             Install-AllUpdates
