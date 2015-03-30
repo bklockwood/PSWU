@@ -9,7 +9,7 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-RootModule = '.\pswu.psm1'
+ModuleToProcess = '.\pswu.psm1'
 
 # Version number of this module.
 ModuleVersion = '1.0'
@@ -21,10 +21,10 @@ GUID = '2cfc6d2b-5e41-4079-8223-856e0ca2dd08'
 Author = 'Bryan Lockwood'
 
 # Company or vendor of this module
-CompanyName = 'Unknown'
+# CompanyName = 'Unknown'
 
 # Copyright statement for this module
-Copyright = '(c) 2015 bryanda. All rights reserved.'
+Copyright = '(c) 2015 Bryan Lockwood. All rights reserved.'
 
 # Description of the functionality provided by this module
 Description = 'Windows Updates'
@@ -66,22 +66,24 @@ PowerShellVersion = '2.0'
 # NestedModules = @()
 
 # Functions to export from this module
-FunctionsToExport = '*'
+FunctionsToExport = @('Write-Log','Test-AdminPrivs','Test-AdminPrivs','Test-RebootNeeded', 
+    'ScheduleRerunTask','CheckForScheduledTask','Hide-Updates','Get-UpdateList','Show-UpdateList', 
+    'Install-Update','Install-AllUpdates')
 
 # Cmdlets to export from this module
-CmdletsToExport = '*'
+CmdletsToExport = @('Hide-Updates','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates')
 
 # Variables to export from this module
-VariablesToExport = '*'
+#VariablesToExport = '*'
 
 # Aliases to export from this module
-AliasesToExport = '*'
+#AliasesToExport = '*'
 
 # List of all modules packaged with this module
 # ModuleList = @()
 
 # List of all files packaged with this module
-FileList = @('PSWU.psd1','PSWU.psm1','Install-Allupdates.ps1')
+FileList = @('PSWU.psd1', 'PSWU.psm1', 'Install-Allupdates.ps1')
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess
 # PrivateData = ''
