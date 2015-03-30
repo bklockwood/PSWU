@@ -6,8 +6,8 @@ function Install-AllUpdates {
     [string]$ScriptName = $($MyInvocation.MyCommand.Name)
     [string]$ScriptName = $($ScriptName.Split('.')[0])
     [string]$ScriptPath = $PSCommandPath
-    write-host "$PSHome\powershell.exe -executionPolicy Unrestricted -File $ScriptPath" 
     #break
+    import-module pswu
     $Logfile = "$env:PUBLIC\Desktop\$ScriptName.log"
     Write-Log $Logfile " -=-=-=-=-=-=-=-=-=-=-=-"
     Write-Log $Logfile "PSWU system patcher is starting (as $env:username)."
