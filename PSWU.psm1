@@ -102,12 +102,12 @@ function Test-RebootNeeded
 #>
 function ScheduleRerunTask ($TaskName, $ScriptPath)
 {
-    schtasks /create `
-        /RU SYSTEM `
-        /SC onstart /TN $TaskName /RL HIGHEST `
-        #note the funky escaping because of http://goo.gl/SgSLrQ
-        /TR "\`"$PSHome\powershell.exe\`" -executionPolicy Unrestricted -File \`"$ScriptPath\`""
-        #/TR "$PSHome\powershell.exe -executionPolicy Unrestricted -File \`"$ScriptPath\`""
+    #note the funky escaping because of http://goo.gl/SgSLrQ
+    [string]$TR = """\`"$PSHome\powershell.exe\`" -executionPolicy Unrestricted -File \`"$ScriptPath\`""""
+    [string]$stask = "schtasks /create /RU system "
+    $stask += "/SC onstart /TN $TaskName "
+    $stask += "/RL HIGHEST /TR $TR"
+    cmd /c $stask
 }
 
 <#
