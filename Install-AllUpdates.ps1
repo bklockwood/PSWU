@@ -41,7 +41,7 @@ function Install-AllUpdates {
 
     if ($ISearchResult.ResultCode -eq 2) {
         Write-Log $Logfile "Successfully retreived update list"
-        Hide-Update -KBID 2483139 #hide Language Packs
+        $ISearchResult | Hide-Update -KBID 2483139 #hide Language Packs
         $NonHiddenUpdateCount = ($ISearchResult.Updates | Where-Object {$_.IsHidden -eq $false}).Count
         #if ($ISearchResult.Updates.Count -gt 0) {
         if ($NonHiddenUpdateCount -gt 0) {
