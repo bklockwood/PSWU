@@ -97,18 +97,20 @@ function Test-RebootNeeded
 <#
 .Synopsis
     Creates a Scheduled Task that restarts this script after reboot.
-    Using schtasks because the *ScheduledTask* cmdlets are PS v3 and up;
-    I want compat with v2.
+    Tthe *ScheduledTask* cmdlets are PS v3 and up;
+    schtasks preserves compat with v2 (win7, 2008r2)
 #>
 function ScheduleRerunTask ($TaskName, $ScriptPath)
 {
     #note the funky escaping because of http://goo.gl/SgSLrQ
-    [string]$TR = """\`"$PSHome\powershell.exe\`" -executionPolicy Unrestricted -File \`"$ScriptPath\`""""
-    [string]$stask = "schtasks /create /RU system "
-    $stask += "/SC onstart /TN $TaskName "
-    $stask += "/RL HIGHEST /TR $TR"
-    cmd /c $stask
+    [string]$TR = """$PSHome\powershell.exe "
+    $TR += " -ExecutionPolicy Unrestricted -File \`"$ScriptPath\`" "
+    [string]$sctask = "schtasks /create /RU system "
+    $sctask += "/SC onstart /TN $TaskName "
+    $sctask += "/RL HIGHEST /TR $TR"""
+    cmd /c $sctask
 }
+
 
 <#
 .Synopsis
@@ -289,9 +291,11 @@ function Install-Update
     $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
     $counter = 0
     foreach ($u in $ISearchResult.Updates) {
-        $counter++
         $u.AcceptEula() 
-        if (!$($u.IsHidden)) { $DesiredUpdates.Add($u) |out-null }
+        if (!$($u.IsHidden)) { 
+            $counter++
+            $DesiredUpdates.Add($u) |out-null 
+        }
         #Used for debugging. One update at a time.
         if ($OneByOne) { 
             if ($counter -gt 1) {break}
