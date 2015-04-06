@@ -3,12 +3,12 @@
 #flowchart: http://i.imgur.com/NSV8AH2.png
 
 function Install-AllUpdates {
+    $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
     [string]$ScriptName = $($MyInvocation.MyCommand.Name)
-    [string]$ScriptName = $($ScriptName.Split('.')[0])
-    [string]$ScriptPath = $PSCommandPath
-    #break
-    import-module pswu
-    $Logfile = "$env:PUBLIC\Desktop\$ScriptName.log"
+    [string]$ScriptPath = Split-Path -Path $($global:MyInvocation.MyCommand.Path)
+    $ScriptFullPath = "$scriptpath\$($MyInvocation.MyCommand.Name).ps1"    
+    import-module -name $ScriptPath    
+    
     Write-Log $Logfile " -=-=-=-=-=-=-=-=-=-=-=-"
     Write-Log $Logfile "PSWU system patcher is starting (as $env:username)."
 
@@ -21,7 +21,7 @@ function Install-AllUpdates {
 
     if (Test-RebootNeeded) {
         Write-Log $Logfile "Restart needed (for pending Windows Updates)."
-        if (!(CheckForScheduledTask "PSWU")) {ScheduleRerunTask "PSWU" $ScriptPath}
+        if (!(CheckForScheduledTask "PSWU")) {ScheduleRerunTask "PSWU" $ScriptFullPath}
         Write-Log $Logfile "Restarting in 15 seconds!"
         Start-Sleep -Seconds 15
         Restart-Computer -Force 
@@ -42,19 +42,17 @@ function Install-AllUpdates {
             [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
             Write-Log $Logfile $UpdateReport  
             Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
-            $Install = Install-Update -ISearchResult $ISearchResult -Verbose
+            $Install = Install-Update -ISearchResult $ISearchResult -OneByOne -Verbose
             Write-Log $Logfile "Done installing updates. Restarting script to check for more."
             Install-AllUpdates
         } else {
             Write-Log $Logfile "Windows is up to date; script cleaning up."
             #check for PSWU Scheduled Task and delete if found
+            #use schtasks for win7 compat
             if (CheckForScheduledTask "PSWU") {
                 Write-Log $Logfile "Found PSWU task; removing. "
-                #Tried Stop-SceduledTask and Unregister-ScheduledTask
-                #Nither will kill the running task. schtasks works.
                 schtasks /delete /tn pswu /F
-                }
-		    #TODO: tell user all done. write to all-users desktop?     
+                }   
             Write-Log $Logfile "Cleanup complete. Running as $env:username - script exiting."
             New-Item -ItemType File -Path "$env:PUBLIC\Desktop" -Name "DONE UPDATING" -Value "You can delete this file and $Logfile"
             break
