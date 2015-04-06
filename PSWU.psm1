@@ -140,7 +140,7 @@ function CheckForScheduledTask ($TaskName)
 .EXAMPLE
    Yo dawg, I herd u liek snover shells.
 #>
-function Hide-Updates
+function Hide-Update
 {
     [CmdletBinding()]
     Param
