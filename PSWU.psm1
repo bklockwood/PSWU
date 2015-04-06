@@ -81,9 +81,6 @@ function Test-RebootNeeded
         #Windows Update
         $SystemInfo= New-Object -ComObject "Microsoft.Update.SystemInfo"
         if ($SystemInfo.RebootRequired) {$NeedsReboot = $true}
-        #Windows Update, again
-        $WURegKey = get-item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update"
-        if ($WURegKey.Property -contains "RebootRequired") {$NeedsReboot = $true}
         #Component Based Servicing
         $CBSRegkey = get-item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing"
         if ($CBSRegkey.Property -contains "RebootRequired") {$NeedsReboot = $true}
