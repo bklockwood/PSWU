@@ -72,9 +72,6 @@ function Get-WUcab
         $urlarray = @()
         $urlarray = $wudownload -split("/")
         $dlfile = "$downloadfolder\$($urlarray[-1])"
-        $wulatestversion
-        $wudownload
-        $dlfile
         $webclient.downloadfile($wudownload,"$dlfile")
         if ($psversiontable.psversion.tostring() -gt 2) {unblock-file "$downloadfolder\$dlfile"}
         start-process "$dlfile"
