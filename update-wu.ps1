@@ -76,7 +76,7 @@ function Get-WUcab
         $wudownload
         $dlfile
         $webclient.downloadfile($wudownload,"$dlfile")
-        #unblock-file "$downloadfolder\$dlfile"
+        if ($psversiontable.psversion.tostring() -gt 2) {unblock-file "$downloadfolder\$dlfile"}
         start-process "$dlfile"
     }
     End{}
