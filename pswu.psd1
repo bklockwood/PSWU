@@ -67,11 +67,11 @@ PowerShellVersion = '2.0'
 
 # Functions to export from this module
 FunctionsToExport = @('Write-Log','Test-AdminPrivs','Test-AdminPrivs','Test-RebootNeeded', 
-    'ScheduleRerunTask','CheckForScheduledTask','Hide-Updates','Get-UpdateList','Show-UpdateList', 
+    'ScheduleRerunTask','CheckForScheduledTask','Hide-Update','Get-UpdateList','Show-UpdateList', 
     'Install-Update','Install-AllUpdates')
 
 # Cmdlets to export from this module
-CmdletsToExport = @('Hide-Updates','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates')
+CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates')
 
 # Variables to export from this module
 #VariablesToExport = '*'
