@@ -5,8 +5,8 @@
 function Install-AllUpdates {
     $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
     [string]$ScriptName = $($MyInvocation.MyCommand.Name)
-    [string]$ScriptPath = Split-Path -Path $($global:MyInvocation.MyCommand.Path)
-    $ScriptFullPath = "$scriptpath\$($MyInvocation.MyCommand.Name).ps1"
+    [string]$ScriptPath = split-path $SCRIPT:MyInvocation.MyCommand.Path 
+    [string]$ScriptFullPath = $SCRIPT:MyInvocation.MyCommand.Path
     try {    
         import-module -name $ScriptPath   
     } catch {
