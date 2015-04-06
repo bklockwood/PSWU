@@ -6,8 +6,14 @@ function Install-AllUpdates {
     $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
     [string]$ScriptName = $($MyInvocation.MyCommand.Name)
     [string]$ScriptPath = Split-Path -Path $($global:MyInvocation.MyCommand.Path)
-    $ScriptFullPath = "$scriptpath\$($MyInvocation.MyCommand.Name).ps1"    
-    import-module -name $ScriptPath    
+    $ScriptFullPath = "$scriptpath\$($MyInvocation.MyCommand.Name).ps1"
+    try {    
+        import-module -name $ScriptPath   
+    } catch {
+        $Logtext = "Could not import the PSWU module; exiting."
+        Out-file -FilePath $Logfile -Append -NoClobber -InputObject $Logtext -Encoding ascii
+        break
+    } 
     
     Write-Log $Logfile " -=-=-=-=-=-=-=-=-=-=-=-"
     Write-Log $Logfile "PSWU system patcher is starting (as $env:username)."
@@ -42,7 +48,7 @@ function Install-AllUpdates {
             [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
             Write-Log $Logfile $UpdateReport  
             Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
-            $Install = Install-Update -ISearchResult $ISearchResult -OneByOne -Verbose
+            $Install = Install-Update -ISearchResult $ISearchResult -Verbose
             Write-Log $Logfile "Done installing updates. Restarting script to check for more."
             Install-AllUpdates
         } else {
