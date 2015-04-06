@@ -1,70 +1,129 @@
-#requires -version 2.0
+<#
+.Synopsis
+ Checks Windows Update Agent and reports current installed version
 
-#flowchart: http://i.imgur.com/NSV8AH2.png
+.PARAMETER Param1
+ Help for Param1
+.EXAMPLE
+ Example of how to use this cmdlet
+.EXAMPLE
+ Another example of how to use this cmdlet
+#>
+function Get-WUInstalledVersion
+{
+    [CmdletBinding()]
+    Param
+    (
+        #[Parameter(Mandatory=$false, ValueFromPipelineByPropertyName=$true, Position=0)][string]$Param1
+    )
 
-function Install-AllUpdates {
-    $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
-    [string]$ScriptName = $($MyInvocation.MyCommand.Name)
-    [string]$ScriptPath = split-path $SCRIPT:MyInvocation.MyCommand.Path 
-    [string]$ScriptFullPath = $SCRIPT:MyInvocation.MyCommand.Path
-    try {    
-        import-module -name $ScriptPath   
-    } catch {
-        $Logtext = "Could not import the PSWU module; exiting."
-        Out-file -FilePath $Logfile -Append -NoClobber -InputObject $Logtext -Encoding ascii
-        break
-    } 
-    
-    Write-Log $Logfile " -=-=-=-=-=-=-=-=-=-=-=-"
-    Write-Log $Logfile "PSWU system patcher is starting (as $env:username)."
-
-    Write-Log $Logfile "Starting PSWU function 'Install-AllUpdates'"
-    if (!(Test-AdminPrivs)) {
-        Write-Warning "You must elevate to Admin privs to download or install updates"
-        Write-Log $Logfile "You must elevate to Admin privs to download or install updates"
-        break 
+    Begin{}
+    Process
+    {
+        $AgentInfo = New-Object -ComObject Microsoft.Update.AgentInfo
+        #$AgentInfo.GetInfo('ApiMajorVersion')
+        #$AgentInfo.GetInfo('ApiMinorVersion')
+        $WUInstalledVersion = $AgentInfo.GetInfo('ProductVersionString')
+        $WUInstalledVersion
     }
-
-    if (Test-RebootNeeded) {
-        Write-Log $Logfile "Restart needed (for pending Windows Updates)."
-        if (!(CheckForScheduledTask "PSWU")) {ScheduleRerunTask "PSWU" $ScriptFullPath}
-        Write-Log $Logfile "Restarting in 15 seconds!"
-        Start-Sleep -Seconds 15
-        Restart-Computer -Force 
-        break #Without this, script will continue processing during the shutdown.
-    } else {
-        Write-Log $Logfile "No reboot needed."
-    }
-
-    Write-Log $Logfile "Checking for updates."
-    $ISearchResult = Get-UpdateList
-
-    if ($ISearchResult.ResultCode -eq 2) {
-        Write-Log $Logfile "Successfully retreived update list"
-        Hide-Update -KBID 2483139 #hide Language Packs
-        $NonHiddenUpdateCount = ($ISearchResult.Updates | Where-Object {$_.IsHidden -eq $false}).Count
-        #if ($ISearchResult.Updates.Count -gt 0) {
-        if ($NonHiddenUpdateCount -gt 0) {
-            Write-Log $Logfile "Non-hidden updates: $NonHiddenUpdateCount"
-            [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
-            Write-Log $Logfile $UpdateReport  
-            Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
-            $Install = Install-Update -ISearchResult $ISearchResult -Verbose
-            Write-Log $Logfile "Done installing updates. Restarting script to check for more."
-            Install-AllUpdates
-        } else {
-            Write-Log $Logfile "Windows is up to date; script cleaning up."
-            #check for PSWU Scheduled Task and delete if found
-            #use schtasks for win7 compat
-            if (CheckForScheduledTask "PSWU") {
-                Write-Log $Logfile "Found PSWU task; removing. "
-                schtasks /delete /tn pswu /F
-                }   
-            Write-Log $Logfile "Cleanup complete. Running as $env:username - script exiting."
-            New-Item -ItemType File -Path "$env:PUBLIC\Desktop" -Name "DONE UPDATING" -Value "You can delete this file and $Logfile"
-            break
-        }
-    }
+    End{}
 }
 
-Install-AllUpdates
+<#
+.Synopsis
+ Downloads WURedist.cab and reports newest available WU version and download URL
+
+.PARAMETER Param1
+ Help for Param1
+.EXAMPLE
+ Example of how to use this cmdlet
+.EXAMPLE
+ Another example of how to use this cmdlet
+#>
+function Get-WUAvailableVersion
+{
+    [CmdletBinding()]
+    Param
+    (
+        #[Parameter(Mandatory=$false, ValueFromPipelineByPropertyName=$true, Position=0)][string]$Param1
+    )
+
+    Begin{}
+    Process
+    {
+        $downloadfolder = "$env:userprofile\Downloads"
+        $webclient = New-Object System.Net.WebClient
+        $dlfile = "http://update.microsoft.com/redist/wuredist.cab"
+        $webclient.downloadfile($dlfile,"$downloadfolder\wuredist.cab")
+        $result = New-Object -TypeName PSObject 
+        if ((Get-AuthenticodeSignature "$downloadfolder\wuredist.cab").Status -eq "Valid") {
+            $eatme = expand "$downloadfolder\wuredist.cab" "$downloadfolder\wuredist.xml" 
+            [xml]$wuredist = get-content $downloadfolder\wuredist.xml
+            $OSArch = "x"
+            $OSArch += ((Get-WmiObject win32_operatingsystem).OSArchitecture -split("-"))[0]
+            $wulatestversion = $($wuredist.WURedist.StandaloneRedist.architecture | where { $_.name -match $OSArch}).clientversion
+            $wudownload = $($wuredist.WURedist.StandaloneRedist.architecture | where { $_.name -match $OSArch}).downloadurl 
+            $result | Add-Member NoteProperty Version $wulatestversion
+            $result | Add-Member NoteProperty DownloadUrl $wudownload
+            $result
+        } else { 
+            $result | Add-Member NoteProperty Version "ERROR"
+            $result | Add-Member NoteProperty DownloadUrl "ERROR"
+            $result
+        }
+    }
+    End{}
+}
+
+<#
+.Synopsis
+   Get the WU redistributable
+.DESCRIPTION
+   Long description
+.PARAMETER Param1
+Help for Param1
+.EXAMPLE
+   Example of how to use this cmdlet
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Get-WUcab
+{
+    [CmdletBinding()]
+    [OutputType([int])]
+    Param
+    (
+        # Param1 help description
+        [Parameter(Mandatory=$false, ValueFromPipelineByPropertyName=$true, Position=0)][string]$Param1      
+
+    )
+
+    Begin{}
+    Process
+    {
+        $downloadfolder = "$env:userprofile\Downloads"
+        $webclient = New-Object System.Net.WebClient
+        $dlfile = "http://update.microsoft.com/redist/wuredist.cab"
+        $webclient.downloadfile($dlfile,"$downloadfolder\wuredist.cab")
+        if ((Get-AuthenticodeSignature "$downloadfolder\wuredist.cab").Status -eq "Valid") {Write-Host "ok"}
+        expand "$downloadfolder\wuredist.cab" "$downloadfolder\wuredist.xml" 
+        [xml]$wuredist = get-content $downloadfolder\wuredist.xml
+        $OSArch = "x"
+        $OSArch += ((Get-WmiObject win32_operatingsystem).OSArchitecture -split("-"))[0]
+        $wulatestversion = $($wuredist.WURedist.StandaloneRedist.architecture | where { $_.name -match $OSArch}).clientversion
+        $wudownload = $($wuredist.WURedist.StandaloneRedist.architecture | where { $_.name -match $OSArch}).downloadurl
+        $urlarray = @()
+        $urlarray = $wudownload -split("/")
+        $dlfile = "$downloadfolder\$($urlarray[-1])"
+        $wulatestversion
+        $wudownload
+        $dlfile
+        $webclient.downloadfile($wudownload,"$dlfile")
+        if ($psversiontable.PSVersion.ToString() -gt 2) {unblock-file "$dlfile"}
+        start-process "$dlfile"
+    }
+    End{}
+}
+
+$WUAvailable = Get-WUAvailableVersion
+Write-Output "Installed WUA version: $(Get-WUInstalledVersion) .. Available WUA version: $($WUAvailable.version)  "
