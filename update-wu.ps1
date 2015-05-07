@@ -1,6 +1,7 @@
 <#
 .Synopsis
- Checks Windows Update Agent and reports current installed version
+ Checks Windows Update Agent and reports current installed version.
+ This DOES NOT WORK, see issue #12
 
 .PARAMETER Param1
  Help for Param1
