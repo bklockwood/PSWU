@@ -79,7 +79,7 @@ function Install-AllUpdates
                 [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
                 Write-Log $Logfile $UpdateReport  
                 Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
-                $Install = Install-Update -ISearchResult $ISearchResult -Verbose -OneByOne
+                $Install = Install-Update -ISearchResult $ISearchResult -Verbose
                 Write-Log $Logfile "Done installing updates. Restarting script to check for more."
                 Install-AllUpdates -DontRunThisCmdletManually "PermissionGranted" `
                     -ScriptName $ScriptName `
