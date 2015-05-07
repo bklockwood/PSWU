@@ -11,4 +11,8 @@ try {
     break
 }   
 
-Install-AllUpdates -ScriptName $ScriptName -Scriptpath $ScriptPath -ScriptFullName $ScriptFullPath -Verbose
+Install-AllUpdates -DontRunThisCmdletManually "PermissionGranted" `
+    -ScriptName $ScriptName `
+    -Scriptpath $ScriptPath `
+    -ScriptFullName $ScriptFullPath `
+    -Verbose
