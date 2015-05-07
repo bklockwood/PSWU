@@ -1,26 +1,34 @@
 #requires -version 2.0
 
+
+<#
+.Synopsis
+   Installs all available, non-hidden updates updates (including optional ones),
+   rebooting as necessary. 
+
+.PARAMETER ScriptName
+    The script name 
+
+.PARAMETER ScriptPath
+    The script path
+
+.PARAMETER ScriptFullName
+    The script full path   
+#>
 function Install-AllUpdates 
 {
     #flowchart: http://i.imgur.com/NSV8AH2.png
     [CmdletBinding()]
-    Param()
-    Begin{}
+    Param(
+        [Parameter(Mandatory=$true,Position=0)][string]$ScriptName,
+        [Parameter(Mandatory=$true,Position=1)][string]$ScriptPath,
+        [Parameter(Mandatory=$true,Position=2)][string]$ScriptFullName
+    )
 
+    Begin{}
     Process 
     {
         $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
-        [string]$ScriptName = $($MyInvocation.MyCommand.Name)
-        [string]$ScriptPath = split-path $SCRIPT:MyInvocation.MyCommand.Path 
-        [string]$ScriptFullPath = $SCRIPT:MyInvocation.MyCommand.Path
-        try {    
-            import-module -name $ScriptPath   
-        } catch {
-            $Logtext = "Could not import the PSWU module; exiting."
-            Out-file -FilePath $Logfile -Append -NoClobber -InputObject $Logtext -Encoding ascii
-            break
-        } 
-    
         Write-Log $Logfile " -=-=-=-=-=-=-=-=-=-=-=-"
         Write-Log $Logfile "PSWU system patcher is starting (as $env:username)."
 
@@ -55,9 +63,9 @@ function Install-AllUpdates
                 [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
                 Write-Log $Logfile $UpdateReport  
                 Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
-                $Install = Install-Update -ISearchResult $ISearchResult -Verbose
+                $Install = Install-Update -ISearchResult $ISearchResult -Verbose -OneByOne
                 Write-Log $Logfile "Done installing updates. Restarting script to check for more."
-                Install-AllUpdates
+                Install-AllUpdates -ScriptName $ScriptName -Scriptpath $ScriptPath -ScriptFullName $ScriptFullPath -Verbose
             } else {
                 Write-Log $Logfile "Windows is up to date; script cleaning up."
                 #check for PSWU Scheduled Task and delete if found
