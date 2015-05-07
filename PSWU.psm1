@@ -1,31 +1,47 @@
 #requires -version 2.0
 
-
 <#
 .Synopsis
    Installs all available, non-hidden updates updates (including optional ones),
-   rebooting as necessary. 
+   rebooting as necessary. You SHOULD NOT be running this function/cmdlet manually.
+    Run the Install-AllUpdates.ps1 script instead.
 
 .PARAMETER ScriptName
-    The script name 
+    The script name. You SHOULD NOT be providing this parameter manually.
+    Run Install-AllUpdates.ps1 which handles this for you.
 
 .PARAMETER ScriptPath
-    The script path
+    The script path. You SHOULD NOT be providing this parameter manually.
+    Run Install-AllUpdates.ps1 which handles this for you.
 
 .PARAMETER ScriptFullName
-    The script full path   
+    The script full path. You SHOULD NOT be providing this parameter manually.
+    Run Install-AllUpdates.ps1 which handles this for you.  
 #>
 function Install-AllUpdates 
 {
     #flowchart: http://i.imgur.com/NSV8AH2.png
     [CmdletBinding()]
     Param(
-        [Parameter(Mandatory=$true,Position=0)][string]$ScriptName,
-        [Parameter(Mandatory=$true,Position=1)][string]$ScriptPath,
-        [Parameter(Mandatory=$true,Position=2)][string]$ScriptFullName
+         [Parameter(Mandatory=$true,Position=0,
+        HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
+        [string]$DontRunThisCmdletManually,
+        [Parameter(Mandatory=$true,Position=1,
+        HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
+        [string]$ScriptName,
+        [Parameter(Mandatory=$true,Position=2,
+        HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
+        [string]$ScriptPath,
+        [Parameter(Mandatory=$true,Position=3,HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
+        [string]$ScriptFullName
     )
 
-    Begin{}
+    Begin{
+        If ($DontRunThisCmdletManually -NE "PermissionGranted") {
+            Write-Host -ForegroundColor Red "You SHOULD NOT be running this function/cmdlet manually.
+            Run the Install-AllUpdates.ps1 script instead."
+            break}
+    }
     Process 
     {
         $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
@@ -65,7 +81,11 @@ function Install-AllUpdates
                 Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
                 $Install = Install-Update -ISearchResult $ISearchResult -Verbose -OneByOne
                 Write-Log $Logfile "Done installing updates. Restarting script to check for more."
-                Install-AllUpdates -ScriptName $ScriptName -Scriptpath $ScriptPath -ScriptFullName $ScriptFullPath -Verbose
+                Install-AllUpdates -DontRunThisCmdletManually "PermissionGranted" `
+                    -ScriptName $ScriptName `
+                    -Scriptpath $ScriptPath `
+                    -ScriptFullName $ScriptFullPath `
+                    -Verbose
             } else {
                 Write-Log $Logfile "Windows is up to date; script cleaning up."
                 #check for PSWU Scheduled Task and delete if found
