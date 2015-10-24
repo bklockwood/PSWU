@@ -421,7 +421,7 @@ function Install-Update
             $InstallResult = $Installer.Install()
             switch ($InstallResult.ResultCode) {
                 2 {Write-Verbose "Installed updates successfully."}
-                3 {Write-Verbose "Installed updates swith errors."}
+                3 {Write-Verbose "Installed updates with errors."}
                 default {Write-Error "Installer error $($InstallResult.HResult),resultcode $($InstallResult.ResultCode)"}
             }
         }        
