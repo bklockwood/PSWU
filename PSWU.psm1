@@ -310,7 +310,7 @@ function Get-UpdateList
 {
     [CmdletBinding()]
     Param
-    ([Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=0)] $Criteria = "IsInstalled=0")
+    ([Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=0)] $Criteria = "IsInstalled=0 and Type='Software'")
 
     try {
         $Searcher = New-Object -ComObject Microsoft.Update.Searcher
