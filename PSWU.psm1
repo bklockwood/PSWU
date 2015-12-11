@@ -1,5 +1,6 @@
 #requires -version 2.0
 
+function Install-AllUpdates {
 <#
 .Synopsis
    Installs all available, non-hidden updates updates (including optional ones),
@@ -16,11 +17,13 @@
 
 .PARAMETER ScriptFullName
     The script full path. You SHOULD NOT be providing this parameter manually.
-    Run Install-AllUpdates.ps1 which handles this for you.  
+    Run Install-AllUpdates.ps1 which handles this for you. 
+    
+.NOTES 
+    flowchart: http://i.imgur.com/NSV8AH2.png
 #>
-function Install-AllUpdates 
-{
-    #flowchart: http://i.imgur.com/NSV8AH2.png
+
+    
     [CmdletBinding()]
     Param(
          [Parameter(Mandatory=$true,Position=0,
@@ -103,14 +106,13 @@ function Install-AllUpdates
     End{}
 }
 
+Function Write-Log {
 <#
 .Synopsis
    Logs short statements, with timestamps, to file defined by $Logfile
 .EXAMPLE
    Write-Log c:\logs\logfile.txt "this is a log entry"
 #>
-Function Write-Log
-{
    Param 
    (
    [Parameter(Mandatory=$true,Position=0)][string]$Logfile,
@@ -124,14 +126,13 @@ Function Write-Log
    Write-Host $Logtext
 }
 
+Function Format-Error {
 <#
 .Synopsis
     Shortened version of Will Steele's technique 
     as found in Powershell Deep Dives, chapter 11
     http://goo.gl/JQQz0R for his original code.
 #>
-Function Format-Error 
-{
     #Param ([Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0)] $MyError)
 
     $timestamp = Get-Date -Format 'yyyyMMdd HH:mm:ss'
@@ -145,14 +146,13 @@ $timestamp  Command: $($_.InvocationInfo.MyCommand)
 "@
 }
 
+function Test-AdminPrivs () {
 <#
 .Synopsis
     Test whether currently running with Administrator privs
     I used the technique found here: http://goo.gl/TwmIIf ... modified for readability
 	TODO: But what about non-english systems? http://goo.gl/nRIoON and http://goo.gl/O1qh37
 #>
-function Test-AdminPrivs () 
-{
     [bool]$retval = $false
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent() 
     $principal = new-object System.Security.Principal.WindowsPrincipal($identity) 
@@ -162,6 +162,7 @@ function Test-AdminPrivs ()
     return $retval
 }
 
+function Test-RebootNeeded {
 <#
 .Synopsis
    Checks whether reboot is needed due to Windows Updates. Returns $true or $false
@@ -172,8 +173,6 @@ function Test-AdminPrivs ()
 .EXAMPLE
    Test-RebootNeeded
 #>
-function Test-RebootNeeded 
-{
     [CmdletBinding()]
     [OutputType([bool])]
     Param()
@@ -194,14 +193,13 @@ function Test-RebootNeeded
     }
 }
 
+function ScheduleRerunTask ($TaskName, $ScriptPath) {
 <#
 .Synopsis
     Creates a Scheduled Task that restarts this script after reboot.
     Tthe *ScheduledTask* cmdlets are PS v3 and up;
     schtasks preserves compat with v2 (win7, 2008r2)
 #>
-function ScheduleRerunTask ($TaskName, $ScriptPath)
-{
     #note the funky escaping because of http://goo.gl/SgSLrQ
     [string]$TR = """$PSHome\powershell.exe "
     $TR += " -ExecutionPolicy Unrestricted -File \`"$ScriptPath\`" "
@@ -211,13 +209,11 @@ function ScheduleRerunTask ($TaskName, $ScriptPath)
     cmd /c $sctask
 }
 
-
+function CheckForScheduledTask ($TaskName) {
 <#
 .Synopsis
     Checks to see if the specified scheduled task exists.
 #>
-function CheckForScheduledTask ($TaskName)
-{
     $return = $true
     #Don't need any error output from Powershell
     $ErrorActionPreference = "SilentlyContinue"
@@ -227,6 +223,7 @@ function CheckForScheduledTask ($TaskName)
     $return
 }
 
+function Hide-Update {
 <#
 .Synopsis
    Hides or un-hides updates as specified by KB article number (KBID).
@@ -240,8 +237,6 @@ function CheckForScheduledTask ($TaskName)
 .EXAMPLE
    Yo dawg, I herd u liek snover shells.
 #>
-function Hide-Update
-{
     [CmdletBinding()]
     Param
     (
@@ -267,6 +262,7 @@ function Hide-Update
     }
 }
 
+function Get-UpdateList {
 <#
 .Synopsis
 Gets list of updates from Windows Update.
@@ -306,8 +302,7 @@ MaxDownloadSize Title
          517819 Security Update for Windows Server 2012 R2 (KB2892074)                                                               
          376647 Update for Windows Server 2012 R2 (KB2917993)
 #>
-function Get-UpdateList
-{
+
     [CmdletBinding()]
     Param
     ([Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=0)] $Criteria = "IsInstalled=0 and Type='Software'")
@@ -323,6 +318,7 @@ function Get-UpdateList
     
 }
 
+Function Show-UpdateList {
 <#
 .Synopsis
  Print a nice table of Updates not installed with some attribute info.
@@ -340,8 +336,6 @@ function Get-UpdateList
 .TODO
 They don't sort properly;
 #>
-Function Show-UpdateList 
-{
     [Cmdletbinding()]
     Param([Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)]$ISearchResult)
     if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
@@ -367,6 +361,7 @@ Function Show-UpdateList
  
 }
 
+function Install-Update {
 <#
 .SYNOPSIS
     Downloads and installs updates
@@ -376,8 +371,6 @@ Function Show-UpdateList
     and IUpdateInstaller http://goo.gl/jeDijU
     WU error codes: http://goo.gl/cSWDY8
 #>
-function Install-Update 
-{
     [CmdletBinding()]
     Param (
         [parameter(Mandatory=$true, ValueFromPipeline=$true)]$ISearchResult,
