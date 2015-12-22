@@ -240,15 +240,16 @@ function Hide-Update {
     [CmdletBinding()]
     Param
     (
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0)]$ISearchResult,
+        [Parameter(Mandatory=$false,ValueFromPipeline=$true,Position=0)]$ISearchResult,
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$false,Position=1)][string[]]$KBID,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$false,Position=2)][switch]$UnHide
     )
 
     Process
     {
+        if ($ISearchResult -eq $null) {$ISearchResult = Get-UpdateList}
         if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
-            Write-Error "$ISearchResult iss not an ISearchResult object (http://goo.gl/pvnUSM)"
+            Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
             break
         }
         foreach ($u in $ISearchResult.Updates){
@@ -264,101 +265,73 @@ function Hide-Update {
 
 function Get-UpdateList {
 <#
-.Synopsis
+.SYNOPSIS
 Gets list of updates from Windows Update.
+
+.DESCRIPTION
+By default, output is columnized as shown in example 1.
+The abbreviated column headers are:
+
+ I T H D R E MB
+ | | | | | |  |- Maximum download size, in megabytes
+ | | | | | |---- "E" if EULA accepted, "-" if not
+ | | | | |------ "R" if reboot required, "-" if not (frequently wrong!)
+ | | | |-------- "D" if the update has been downloaded, "-" if not
+ | | |---------- "H" if the update is hiden, "-" if not
+ | |------------ "S" if software, "D" if driver
+ |-------------- "I" if installed, "-" if not
+
+.PARAMETER Computername
+The target computer. 
+Cannot use an array of computernames here.
+Defaults to the local PC.
    
 .PARAMETER  Criteria
 The search criteria, see http://goo.gl/7nZSPs
-Left at default, it will return all updates that have not yet
-been installed, whether software or driver. Including Hidden
-updates.
+Left at default, it will return all software updates that have not yet
+been installed. Driver updates are ignored, but Hidden updates are shown
+with the "H" flag set.
 
 .NOTES
-Returns an ISearchResult object (http://goo.gl/pvnUSM) named $ISearchResult
-ISearchresult type - System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}
-$ISearchResult.Updates contains an IUpdateCollection  - http://goo.gl/8C2dbb
+Returns an IUpdateCollection (http://goo.gl/8C2dbb) named IUpdateCollection
+IUpdateCollection is type System.__ComObject#{c1c2f21a-d2f4-4902-b5c6-8a081c19a890}
 WU error codes: http://goo.gl/cSWDY8
 
 .EXAMPLE
-Get-UpdateList | ft -AutoSize
+Get-UpdateList 
 
-ResultCode RootCategories     Updates            Warnings          
----------- --------------     -------            --------          
-         2 System.__ComObject System.__ComObject System.__ComObject
+KB      T H D R E MB Severity  Published  Title                                                                                               
+--      - - - - - -- --------  ---------  -----                                                                                               
+3107998 S - - - E 2            11/10/2015 Update for Windows Server 2012 R2 (KB3107998)                                                       
+3081320 S - - - E 4  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3081320)                                              
+3101246 S - - - E 1  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3101246)                                              
+3102939 S - - - E 2  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3102939)                                              
+3092601 S - - - E 0  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3092601)
 
 .EXAMPLE
-(Get-UpdateList).Updates.Count
-40
+(Get-UpdateList).Count
+5
 
 Shows that there are 40 updates available.
 
-.EXAMPLE
-(Get-UpdateList).Updates | select maxdownloadsize, title | ft -AutoSize
-
-MaxDownloadSize Title                                                                                                                
---------------- -----                                                                                                                
-       10123467 Update for Windows Server 2012 R2 (KB2884846)                                                                        
-         948931 Security Update for Windows Server 2012 R2 (KB2876331)                                                               
-         517819 Security Update for Windows Server 2012 R2 (KB2892074)                                                               
-         376647 Update for Windows Server 2012 R2 (KB2917993)
 #>
 
     [CmdletBinding()]
-    Param
-    ([Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=0)] $Criteria = "IsInstalled=0 and Type='Software'")
+    Param (
+        [Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=0)] $Computername = ".",
+        [Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=1)] $Criteria = "IsInstalled=0 and Type='Software'"
+    )
 
-    try {
+    if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        #following line thanks to http://serverfault.com/a/407379/3437 ... icnivad, you rock!
+        #Causes this function to be invoked remotely on the target PC, where the ELSE condition will be true.
+        Invoke-Command -ComputerName $Computername -ScriptBlock ${function:Get-UpdateList} -ArgumentList $Computername,$Criteria
+    } else {
         $Searcher = New-Object -ComObject Microsoft.Update.Searcher
+        $Searcher.Online = $false #try an offline search!
         $ISearchResult = $Searcher.Search($Criteria)
-        $ISearchResult
-    } catch {
-        Write-Error "ERROR in Get-UpdateList"
-        return $_
-    } 
-    
-}
-
-Function Show-UpdateList {
-<#
-.Synopsis
- Print a nice table of Updates not installed with some attribute info.
-
-.Description
- Columns:
- 
- THDRE
- |||||- "E" if EULA accepted, "-" if not
- ||||-- "R" if reboot required, "-" if not (frequently wrong!)
- |||--- "D" if the update has been downloaded, "-" if not
- ||---- "H" if the update is hiden, "-" if not
- |----- "S" if software, "D" if driver
-
-.TODO
-They don't sort properly;
-#>
-    [Cmdletbinding()]
-    Param([Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)]$ISearchResult)
-    if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
-        Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
-        break
-    }
-    Write-Output "$($ISearchResult.Updates.Count) updates available:"
-    $ISearchResult.Updates |
-    Select @{n='KB';e={$_.KbArticleIds}},
-        #Update type 1 is software, type 2 is driver. http://goo.gl/VvV7tt
-        @{n='T';e={if ($_.Type -eq 1) {"S"} ElseIf ($_.Type -eq 2) {"D"}}},
-        @{n='H';e={if ($_.isHidden) {"H"} Else {"-"}}},
-        @{n='D';e={if ($_.isDownloaded) {"D"} Else {"-"}}},
-        @{n='R';e={if ($_.Rebootrequired) {"R"} Else {"-"}}},
-        @{n='E';e={if ($_.EulaAccepted) {"E"} Else {"-"}}},
-        @{n='MB';e={'{0:N0}' -f ($_.MaxDownloadSize/1MB)}},            
-        @{n='Severity';e={$_.MsrcSeverity}},
-        @{n='Published';e={$_.LastDeploymentChangeTime.ToShortDateString()}},
-        #@{n='UID';e={$_.Identity.UpdateID}}, 
-        #truncate title to 40 chars       
-        @{n='Title';e={ if ($($_.Title.Length) -lt 40) {$_.Title} else {$($_.Title.Substring(0,37)) + "..."}}} |
-    Sort -Property $_.LastDeploymentChangeTime | ft -AutoSize |out-string 
- 
+        $ISearchResult.Updates
+    }    
 }
 
 function Install-Update {
@@ -371,52 +344,69 @@ function Install-Update {
     and IUpdateInstaller http://goo.gl/jeDijU
     WU error codes: http://goo.gl/cSWDY8
 #>
+
     [CmdletBinding()]
     Param (
-        [parameter(Mandatory=$true, ValueFromPipeline=$true)]$ISearchResult,
-        [parameter(Mandatory=$false, ValueFromPipeline=$true)][switch]$OneByOne
-        )    
-    if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
-        Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
-        break
-    }
+        [parameter(Mandatory=$false, ValueFromPipeline=$true,Position=0)]$Computername = ".",
+        [parameter(Mandatory=$false, ValueFromPipeline=$true,Position=1)]$IUpdateCollection,
+        [parameter(Mandatory=$false, ValueFromPipeline=$true,Position=2)][switch]$OneByOne
+        )
+    <#
+        This is working well locally. But FAILS remotely, because the IUpdateCollection is a deserialized object
+        and it does not have the AcceptEULA method. Attionally, $DesiredUpdates.Add($u) fails with "Specified cast is not valid."
 
-    $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
-    $counter = 0
-    foreach ($u in $ISearchResult.Updates) {
-        $u.AcceptEula() 
-        if (!$($u.IsHidden)) { 
-            $counter++
-            $DesiredUpdates.Add($u) |out-null 
-        }
-        #Used for debugging. One update at a time.
-        if ($OneByOne) { 
-            if ($counter -gt 1) {break}
-        }      
-    }
+        Moving Get-UpdateList into the ELSE clause will not work, because the remote system is not guaranteed to have the
+        function/cmdlet.
 
-    If ($DesiredUpdates.Count -lt 1) { 
-        Write-Verbose "No updates to install!"
+        Worst case? Replicate the code of Get-UpdateList in the ELSE clause (wrapped in its own IF statement)
+        Remember, whatever solution is used here will also be needed in Hide-Update.
+
+        Can I populate a variable on the remote machine?
+    #>
+
+    if ($IUpdateCollection -eq $null) {$IUpdateCollection = Get-UpdateList $Computername}
+    if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        #following line thanks to http://serverfault.com/a/407379/3437 ... icnivad, you rock!
+        #Causes this function to be invoked remotely on the target PC, where the ELSE condition will be true.
+        Invoke-Command -ComputerName $Computername -ScriptBlock ${function:Install-Update} -ArgumentList $Computername,$IUpdateCollection,$OneByOne
     } else {
-        Write-Verbose "Downloading and installing $($DesiredUpdates.Count) updates" 
-        $Downloader = New-Object -ComObject Microsoft.Update.Downloader
-        $Downloader.Updates = $DesiredUpdates
-        $DownloadResult = $Downloader.Download()
-        #Resultcode 2-success, 3-success with errors. 
-        #Using -contains instead of -in for PS v2 compat
-        if (2,3 -notcontains $DownloadResult.ResultCode) {
-            Write-Error "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode)"
-        } else {
-            if ($DownloadResult.ResultCode -eq 3) {Write-Verbose "Downloaded with errors; beginning install."}
-            if ($DownloadResult.ResultCode -eq 2) {Write-Verbose "Downloaded successfully; beginning install."}
-            $Installer = New-Object -ComObject Microsoft.Update.Installer
-            $Installer.Updates = $DesiredUpdates
-            $InstallResult = $Installer.Install()
-            switch ($InstallResult.ResultCode) {
-                2 {Write-Verbose "Installed updates successfully."}
-                3 {Write-Verbose "Installed updates with errors."}
-                default {Write-Error "Installer error $($InstallResult.HResult),resultcode $($InstallResult.ResultCode)"}
+        $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
+        $counter = 0
+        foreach ($u in $IUpdateCollection) {
+            $u.AcceptEula() 
+            if (!$($u.IsHidden)) { 
+                $counter++
+                $DesiredUpdates.Add($u) |out-null 
             }
-        }        
+            #Used for debugging. One update at a time.
+            if ($OneByOne) { 
+                if ($counter -gt 1) {break}
+            }      
+        }
+
+        If ($DesiredUpdates.Count -lt 1) { 
+            Write-Verbose "No updates to install!"
+        } else {
+            Write-Verbose "Downloading and installing $($DesiredUpdates.Count) updates" 
+            $Downloader = New-Object -ComObject Microsoft.Update.Downloader
+            $Downloader.Updates = $DesiredUpdates
+            $DownloadResult = $Downloader.Download()
+            #Resultcode 2-success, 3-success with errors. 
+            #Using -contains instead of -in for PS v2 compat
+            if (2,3 -notcontains $DownloadResult.ResultCode) {
+                Write-Error "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode)"
+            } else {
+                if ($DownloadResult.ResultCode -eq 3) {Write-Verbose "Downloaded with errors; beginning install."}
+                if ($DownloadResult.ResultCode -eq 2) {Write-Verbose "Downloaded successfully; beginning install."}
+                $Installer = New-Object -ComObject Microsoft.Update.Installer
+                $Installer.Updates = $DesiredUpdates
+                $InstallResult = $Installer.Install()
+                switch ($InstallResult.ResultCode) {
+                    2 {Write-Verbose "Installed updates successfully."}
+                    3 {Write-Verbose "Installed updates with errors."}
+                    default {Write-Error "Installer error $($InstallResult.HResult),resultcode $($InstallResult.ResultCode)"}
+                }
+            }
+        }
     }
 }

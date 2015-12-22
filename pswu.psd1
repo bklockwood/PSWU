@@ -12,7 +12,7 @@
 ModuleToProcess = '.\pswu.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.1'
+ModuleVersion = '1.2'
 
 # ID used to uniquely identify this module
 GUID = '2cfc6d2b-5e41-4079-8223-856e0ca2dd08'
@@ -24,10 +24,10 @@ Author = 'Bryan Lockwood'
 # CompanyName = 'Unknown'
 
 # Copyright statement for this module
-Copyright = '(c) 2015 Bryan Lockwood. All rights reserved.'
+Copyright = '(CC BY 4.0) 2015 Bryan Lockwood. http://creativecommons.org/licenses/by/4.0/'
 
 # Description of the functionality provided by this module
-Description = 'Windows Updates'
+Description = 'CLI Windows Update'
 
 # Minimum version of the Windows PowerShell engine required by this module
 PowerShellVersion = '2.0'
@@ -60,7 +60,7 @@ PowerShellVersion = '2.0'
 # TypesToProcess = @()
 
 # Format files (.ps1xml) to be loaded when importing this module
-# FormatsToProcess = @()
+FormatsToProcess = @('.\pswuformats.ps1xml')
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 # NestedModules = @()
@@ -68,10 +68,10 @@ PowerShellVersion = '2.0'
 # Functions to export from this module
 FunctionsToExport = @('Write-Log','Test-AdminPrivs','Test-AdminPrivs','Test-RebootNeeded', 
     'ScheduleRerunTask','CheckForScheduledTask','Hide-Update','Get-UpdateList','Show-UpdateList', 
-    'Install-Update','Install-AllUpdates')
+    'Install-Update','Install-AllUpdates','Install-PSWU')
 
 # Cmdlets to export from this module
-CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates')
+CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates','Install-PSWU')
 
 # Variables to export from this module
 #VariablesToExport = '*'

@@ -1,0 +1,87 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Configuration>
+    <ViewDefinitions>
+        <View>
+            <Name>PSWU.Get-Updates</Name>
+            <ViewSelectedBy>
+                <TypeName>System.__ComObject#{c1c2f21a-d2f4-4902-b5c6-8a081c19a890}</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>KB</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>I</Label>
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>T</Label>
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>H</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>D</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>R</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>E</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>MB</Label>
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>Severity</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Published</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Title</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <Scriptblock>$_.KBArticleIDs</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.isInstalled -eq 1) {"I"} Else {"-"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.Type -eq 1) {"S"} ElseIf ($_.Type -eq 2) {"D"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.isHidden) {"H"} Else {"-"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.isDownloaded) {"D"} Else {"-"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.Rebootrequired) {"R"} Else {"-"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.EulaAccepted) {"E"} Else {"-"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>'{0:N0}' -f ($_.MaxDownloadSize/1MB)</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>$_.MsrcSeverity</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>$_.LastDeploymentChangeTime.ToShortDateString()</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Title</PropertyName>
+                            </TableColumnItem>                            
+                        </TableColumnItems>
+                    </TableRowEntry>
+                    </TableRowEntries>
+            </TableControl>
+        </View>
+    </ViewDefinitions>
+</Configuration>
