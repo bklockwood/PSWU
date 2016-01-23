@@ -3,25 +3,23 @@
 
 function Install-AllUpdates {
 <#
-.Synopsis
-   Installs all available, non-hidden updates updates (including optional ones),
-   rebooting as necessary. You SHOULD NOT be running this function/cmdlet manually.
-    Run the Install-AllUpdates.ps1 script instead.
-
+.SYNOPSIS
+Installs all available, non-hidden updates updates (including optional ones),
+rebooting as necessary. You SHOULD NOT be running this function/cmdlet manually.
+Run the Install-AllUpdates.ps1 script instead.
 .PARAMETER ScriptName
-    The script name. You SHOULD NOT be providing this parameter manually.
-    Run Install-AllUpdates.ps1 which handles this for you.
-
+The script name. You SHOULD NOT be providing this parameter manually.
+Run Install-AllUpdates.ps1 which handles this for you.
 .PARAMETER ScriptPath
-    The script path. You SHOULD NOT be providing this parameter manually.
-    Run Install-AllUpdates.ps1 which handles this for you.
-
+The script path. You SHOULD NOT be providing this parameter manually.
+Run Install-AllUpdates.ps1 which handles this for you.
 .PARAMETER ScriptFullName
-    The script full path. You SHOULD NOT be providing this parameter manually.
-    Run Install-AllUpdates.ps1 which handles this for you. 
-    
+The script full path. You SHOULD NOT be providing this parameter manually.
+Run Install-AllUpdates.ps1 which handles this for you.
+.EXAMPLE
+Install-AllUpdates 
 .NOTES 
-    flowchart: http://i.imgur.com/NSV8AH2.png
+flowchart: http://i.imgur.com/NSV8AH2.png
 #>
 
     
@@ -109,10 +107,14 @@ function Install-AllUpdates {
 
 Function Write-Log {
 <#
-.Synopsis
-   Logs short statements, with timestamps, to file defined by $Logfile
+.SYNOPSIS
+Logs short statements, with timestamps, to file defined by $Logfile
+.PARAMETER Logfile
+The full path to the logfile.
+.PARAMETER Logstring
+The text string to log.
 .EXAMPLE
-   Write-Log c:\logs\logfile.txt "this is a log entry"
+Write-Log c:\logs\logfile.txt "This is a log entry"
 #>
    Param 
    (
@@ -129,10 +131,13 @@ Function Write-Log {
 
 Function Format-Error {
 <#
-.Synopsis
-    Shortened version of Will Steele's technique 
-    as found in Powershell Deep Dives, chapter 11
-    http://goo.gl/JQQz0R for his original code.
+.SYNOPSIS
+Shortened version of Will Steele's technique 
+as found in Powershell Deep Dives, chapter 11
+http://goo.gl/JQQz0R for his original code.
+.NOTES
+There are no examples for this function; it is not meant to 
+be called by humans. 
 #>
     #Param ([Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0)] $MyError)
 
@@ -149,11 +154,18 @@ $timestamp  Command: $($_.InvocationInfo.MyCommand)
 
 function Test-AdminPrivs () {
 <#
-.Synopsis
-    Test whether currently running with Administrator privs
-    I used the technique found here: http://goo.gl/TwmIIf ... modified for readability
-	TODO: But what about non-english systems? http://goo.gl/nRIoON and http://goo.gl/O1qh37
+.SYNOPSIS
+Test whether currently running with Administrator privs.
+.DESCRIPTION
+Returns TRUE if the calling account has admin privs; FALSE if not.
+.NOTES
+I used the technique found here: http://goo.gl/TwmIIf ... modified for readability.
+TODO: But what about non-english systems? http://goo.gl/nRIoON and http://goo.gl/O1qh37
+.EXAMPLE
+Test-AdminPrivs
+True
 #>
+
     [bool]$retval = $false
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent() 
     $principal = new-object System.Security.Principal.WindowsPrincipal($identity) 
@@ -165,14 +177,15 @@ function Test-AdminPrivs () {
 
 function Test-RebootNeeded {
 <#
-.Synopsis
-   Checks whether reboot is needed due to Windows Updates. Returns $true or $false
-
-.Note
-    Thanks to Brian Wilhite who documented several of these check methods at
-    http://goo.gl/JKZZY and http://goo.gl/OJLSib
+.SYNOPSIS
+Checks whether reboot is needed due to Windows Updates. Returns $true or $false
+.PARAMETER Computername
+The target computer. Defaults to the local PC.
+.NOTES
+Thanks to Brian Wilhite who documented several of these check methods at
+http://goo.gl/JKZZY and http://goo.gl/OJLSib
 .EXAMPLE
-   Test-RebootNeeded
+Test-RebootNeeded -Computername AaronsPC
 #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -204,10 +217,18 @@ function Test-RebootNeeded {
 
 function ScheduleRerunTask ($TaskName, $ScriptPath) {
 <#
-.Synopsis
-    Creates a Scheduled Task that restarts this script after reboot.
-    Tthe *ScheduledTask* cmdlets are PS v3 and up;
-    schtasks preserves compat with v2 (win7, 2008r2)
+.SYNOPSIS
+Creates a Scheduled Task that restarts this script after reboot.
+.PARAMETER TaskName
+A name for the task.
+.PARAMETER ScriptPath
+Full path to the script.
+.NOTES
+The *ScheduledTask* cmdlets are PS v3 and up;
+schtasks used purposely to preserve compat with v2 (win7, 2008r2).
+This function is likely to be removed soon. (Use New-PSTask instead!)
+.EXAMPLE
+ScheduleRerunTask RestartTask c:\myscript.ps1
 #>
     #note the funky escaping because of http://goo.gl/SgSLrQ
     [string]$TR = """$PSHome\powershell.exe "
@@ -221,7 +242,11 @@ function ScheduleRerunTask ($TaskName, $ScriptPath) {
 function CheckForScheduledTask ($TaskName) {
 <#
 .Synopsis
-    Checks to see if the specified scheduled task exists.
+Checks to see if the specified scheduled task exists.
+.PARAMETER TaskName
+Name of task to check for.
+.EXAMPLE
+TODO
 #>
     $return = $true
     #Don't need any error output from Powershell
@@ -268,9 +293,7 @@ function Hide-Update {
    
    The above example UN-hides KB3012973 (upgrade to Windows 10)
    on a remote computer named "t7". While waiting for the scheduled 
-   task to complete, one dot is output every ten seconds.
-
-    
+   task to complete, one dot is printed to console every ten seconds.    
 #>
     [CmdletBinding()]
     Param
@@ -312,6 +335,15 @@ function Get-UpdateHistory {
 <#
 .SYNOPSIS
 Gets update history for the target computer.
+.PARAMETER Computername
+The target computer. Defaults to the local PC.
+.EXAMPLE
+get-updatehistory t7
+01/23/2016 04:09:16, Install, Success, Security Update for Windows 7 for x64-based Systems (KB3108664)
+01/23/2016 04:04:09, Install, Success, Security Update for Windows 7 for x64-based Systems (KB3069762)
+01/23/2016 04:02:27, Install, Success, Windows Malicious Software Removal Tool x64 - January 2016 (KB890830)
+01/23/2016 04:00:50, Install, Success, Update for Windows 7 for x64-based Systems (KB2970228)
+01/23/2016 04:00:35, Install, Success, Security Update for Windows 7 for x64-based Systems (KB2965788)
 #>
     [CmdletBinding()]
     Param (
@@ -327,16 +359,16 @@ Gets update history for the target computer.
         $History = $Searcher.QueryHistory(0, $HistoryCount)            
         foreach ($u in $History) {            
             switch ($($u.Operation)) {
-                1 {$operation = "Installation"}
-                2 {$operation = "Uninstallation"}
+                1 {$operation = "Install"}
+                2 {$operation = "Uninstall"}
             }
             switch ($($u.ResultCode)) {
                 0 {$resultcode = "NotStarted"}
                 1 {$resultcode = "InProgress"}
-                2 {$resultcode = "Succeeded"}
-                3 {$resultcode = "SucceededWithErrors"}
-                4 {$resultcode = "Failed"}
-                5 {$resultcode = "Aborted"}
+                2 {$resultcode = "Success"}
+                3 {$resultcode = "Success(Errors)"}
+                4 {$resultcode = "Fail"}
+                5 {$resultcode = "Abort"}
             }
             Write-Output "$(Get-LocalTime $($u.Date)), $operation, $resultcode, $($u.Title)"
             #TODO: make a nice object and a PSWUformat for this
@@ -349,7 +381,6 @@ function Get-UpdateList {
 <#
 .SYNOPSIS
 Gets list of updates from Windows Update.
-
 .DESCRIPTION
 By default, output is columnized as shown in example 1.
 The abbreviated column headers are:
@@ -362,28 +393,21 @@ The abbreviated column headers are:
  | | |---------- "H" if the update is hidden, "-" if not
  | |------------ "S" if software, "D" if driver
  |-------------- "I" if installed, "-" if not
-
 .PARAMETER Computername
-The target computer. 
-Cannot use an array of computernames here.
-Defaults to the local PC.
-   
+The target computer. Defaults to the local PC. 
 .PARAMETER  Criteria
 The search criteria, see http://goo.gl/7nZSPs
 Left at default, it will return all software updates that have not yet
 been installed. Driver updates are ignored, but Hidden updates are shown
 with the "H" flag set.
-
 .PARAMETER SearchObject
-This switch is used when an ISearchResult object (http://goo.gl/pvnUSM) must be returned.
-For most manual uses you can ignore this; the module will should provide it when
-needed internally.
-
+This switch is used when an ISearchResult object (http://goo.gl/pvnUSM) must be 
+returned. For most manual uses you can ignore this; the module will provide it 
+when needed internally.
 .NOTES
 Returns an IUpdateCollection (http://goo.gl/8C2dbb) named IUpdateCollection
 IUpdateCollection is type System.__ComObject#{c1c2f21a-d2f4-4902-b5c6-8a081c19a890}
 WU error codes: http://goo.gl/cSWDY8
-
 .EXAMPLE
 Get-UpdateList 
 
@@ -394,13 +418,11 @@ KB      T H D R E MB Severity  Published  Title
 3101246 S - - - E 1  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3101246)                                              
 3102939 S - - - E 2  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3102939)                                              
 3092601 S - - - E 0  Important 11/10/2015 Security Update for Windows Server 2012 R2 (KB3092601)
-
 .EXAMPLE
 (Get-UpdateList).Count
 5
 
-Shows that there are 40 updates available.
-
+Shows that there are 5 updates available.
 #>
 
     [CmdletBinding()]
@@ -431,12 +453,25 @@ Shows that there are 40 updates available.
 function Install-Update {
 <#
 .SYNOPSIS
-    Downloads and installs updates
-
+Downloads and installs updates.
+.PARAMETER Computername
+The target computer. Defaults to the local PC. 
+.PARAMETER ISearchResult
+An ISearchResult returned by the Get-UpdateList cmdlet.
+If not provided, that cmdlet will be run to fetch one.
+.PARAMETER OneByOne
+Used for debugging. Allows only one update to be downloaded and installed.
+.PARAMETER Reboot
+If this switch parameter is provided, the system will be rebooted - but *only*
+if the update(s) installed left the system in a 'needs reboot' state.
+the 
 .NOTES
-    Uses IUpdateDownloader http://goo.gl/hPK49j
-    and IUpdateInstaller http://goo.gl/jeDijU
-    WU error codes: http://goo.gl/cSWDY8
+Uses IUpdateDownloader http://goo.gl/hPK49j
+and IUpdateInstaller http://goo.gl/jeDijU
+WU error codes: http://goo.gl/cSWDY8
+.EXAMPLE
+Install-Update -Computername BensPC -Reboot
+Installs outstanding (non-hidden) updates and reboots the computer if needed.
 #>
 
     [CmdletBinding()]
@@ -545,12 +580,19 @@ function Install-Update {
 function Install-RemotePSWU {
 <#
 .SYNOPSIS
-Installs PSWU to remote computer
-
+Installs PSWU to remote computer.
+.PARAMETER Computername
+The target computer. Defaults to the local PC.
+.PARAMETER Update
+Updates the remote installation of PSWU to an exact copy of the
+local installation.
 .NOTES
 Follow the rules at https://goo.gl/OjL8Nt
 Note that Win7 and below do not have C:\Program Files\WindowsPowerShell\Modules
 in $env:PSModulePath. I read the rules as saying it is OK to add that path.
+.EXAMPLE
+Install-RemotePSWU CathyPC -Update
+Installs or updates the PSWU module on the system named CathyPC.
 #>
 
     [CmdletBinding()]
@@ -600,8 +642,20 @@ in $env:PSModulePath. I read the rules as saying it is OK to add that path.
 function New-PSTask {
 <#
 .SYNOPSIS
-Creates a scheduledtask
-
+Creates, runs, monitors, and finally deletes a Scheduled Task on a remote PC.
+.DESCRIPTION
+.PARAMETER Computername
+The target computer. Defaults to the local PC.
+.PARAMETER Command
+The Powershell command(s) to be run by the remote scheduled task. 
+.PARAMETER Reboot
+If this switch parameter is given, the remote PC will be rebooted *if*
+it is in a 'needs reboot' state.
+.EXAMPLE
+New-PSTask -Computername DanaPC -Command "&import-module pswu;Install-Update" -Reboot
+The system named DanaPC will immediately run a scheduled task containing an 
+Install-Update command. If this leaves DanaPC in a 'needs reboot' state, then it will
+be rebooted.
 .NOTES
 
 #>
@@ -691,7 +745,17 @@ Creates a scheduledtask
 }
 
 Function Get-LocalTime($UTCTime) {
-#Thanks Tao Yang: http://goo.gl/R0w1Fk
+<#
+.SYNOPSIS
+Translates a UTC date to one appropriate to the local timezone.
+.PARAMETER UTCTime
+The UTC date object which needs to be read as local time.
+.NOTES
+Thanks Tao Yang: http://goo.gl/R0w1Fk
+.EXAMPLE
+Get-LocalTime $dateobject
+#>
+
     $strCurrentTimeZone = (Get-WmiObject win32_timezone).StandardName
     $TZ = [System.TimeZoneInfo]::FindSystemTimeZoneById($strCurrentTimeZone)
     $LocalTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($UTCTime, $TZ)
