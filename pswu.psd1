@@ -68,10 +68,12 @@ FormatsToProcess = @('.\pswuformats.ps1xml')
 # Functions to export from this module
 FunctionsToExport = @('Write-Log','Test-AdminPrivs','Test-AdminPrivs','Test-RebootNeeded', 
     'ScheduleRerunTask','CheckForScheduledTask','Hide-Update','Get-UpdateList','Show-UpdateList', 
-    'Install-Update','Install-AllUpdates','Install-PSWU')
+    'Install-Update','Install-AllUpdates','Install-RemotePSWU', 'New-PSTask', 'Get-UpdateHistory', 
+    'test-remoteicm', 'get-OSversion')
 
 # Cmdlets to export from this module
-CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates','Install-PSWU')
+CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates',
+    'Install-RemotePSWU', 'New-PSTask', 'Get-UpdateHistory', 'test-remoteicm', 'get-OSversion')
 
 # Variables to export from this module
 #VariablesToExport = '*'

@@ -1,4 +1,5 @@
 #requires -version 2.0
+#Set-StrictMode -Version 2.0
 
 function Install-AllUpdates {
 <#
@@ -175,17 +176,25 @@ function Test-RebootNeeded {
 #>
     [CmdletBinding()]
     [OutputType([bool])]
-    Param()
+    Param([Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".")
 
-    Process
-    {
-        $NeedsReboot = $false
-        #Windows Update
-        $SystemInfo= New-Object -ComObject "Microsoft.Update.SystemInfo"
-        if ($SystemInfo.RebootRequired) {$NeedsReboot = $true}
-        #Component Based Servicing
-        $CBSRegkey = get-item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing"
-        if ($CBSRegkey.Property -contains "RebootRequired") {$NeedsReboot = $true}
+    if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        #this clause runs when a remote machine has been specified
+        #output variable in scriptblock because #26 https://github.com/bklockwood/PSWU/issues/26 
+        invoke-Command -ComputerName $Computername -ScriptBlock { import-module PSWU; $output = Test-RebootNeeded; $output } 
+    } else {
+        [bool]$NeedsReboot = $false
+        <#
+            #Windows Update ISystemInformation, fails remotely, https://goo.gl/Txmf4S
+            $SystemInfo= New-Object -ComObject "Microsoft.Update.SystemInfo" 
+            if ($SystemInfo.RebootRequired) {$NeedsReboot = $true} 
+            #>
+        #Windows Update registry key http://goo.gl/GiJCO8
+        $WURegKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+        if (test-path $WURegKey) {$NeedsReboot = $true}
+        #Component Based Servicing http://goo.gl/GiJCO8
+        $CBSRegkey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"
+        if (test-path $CBSRegkey) {$NeedsReboot = $true}
         #Pending File Rename Operations
         $PFRORegkey = get-item "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\FileRenameOperations"
         if ($PFRORegkey.Property) {$NeedsReboot = $true}
@@ -227,27 +236,63 @@ function Hide-Update {
 <#
 .Synopsis
    Hides or un-hides updates as specified by KB article number (KBID).
-.PARAMETER ISearchResult
-   ISearchResult is delivered from Get-UpdateList and is a COM object.
-   (http://goo.gl/pvnUSM)
+.PARAMETER Computername
+   The target computer. Defaults to the local PC.
 .PARAMETER KBID
    One or more KBIDs to hide or un-hide.
 .PARAMETER UNHIDE
    Switch parameter. If used, the specified KBID(s) will be UN-hidden.
+.PARAMETER ISearchResult
+   ISearchResult is delivered from Get-UpdateList and is a COM object.
+   (http://goo.gl/pvnUSM)
+.NOTES
+   Hiding updates is a protected action which cannot be performed remotely,
+   per Microoft: https://goo.gl/Afi70J ... so, when a remote computer is 
+   specified, this cmdlet will create a Scheduled Task on the remote 
+   system, and wait for its completion.
 .EXAMPLE
-   Yo dawg, I herd u liek snover shells.
+   Hide-Update -Computername t7 -KBID 2483139 -Verbose
+   VERBOSE: Task was created
+   VERBOSE: PSWU task started on t7, waiting for completion.
+   ...
+   VERBOSE: PSWU task on t7 is in READY state.
+   VERBOSE: PSWU task on t7 last run state: COMPLETED SUCCESSFULLY
+   VERBOSE: Task completed; t7 does NOT need reboot.
+
+   The above example hides the KB2483139 update (Language Packs) on a 
+   remote computer named "t7" and produces verbose output.
+
+.EXAMPLE
+   Hide-Update -Computername t7 -UnHide -KBID 3012973
+   ...
+   
+   The above example UN-hides KB3012973 (upgrade to Windows 10)
+   on a remote computer named "t7". While waiting for the scheduled 
+   task to complete, one dot is output every ten seconds.
+
+    
 #>
     [CmdletBinding()]
     Param
     (
-        [Parameter(Mandatory=$false,ValueFromPipeline=$true,Position=0)]$ISearchResult,
+        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".",
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$false,Position=1)][string[]]$KBID,
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$false,Position=2)][switch]$UnHide
+        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$false,Position=2)][switch]$UnHide,
+        [Parameter(Mandatory=$false,ValueFromPipeline=$true,Position=3)]$ISearchResult
     )
-
-    Process
-    {
-        if ($ISearchResult -eq $null) {$ISearchResult = Get-UpdateList}
+    
+    if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        #this clause runs when a remote machine has been specified
+        #NOTE< reason for this scheduled task explained at "Hateful Note" in Install-Update    
+        if ($UnHide) {
+            $command = "&import-module pswu;Hide-Update -UnHide -KBID $KBID"
+        } else {
+            $command = "&import-module pswu;Hide-Update -KBID $KBID"
+        }
+        Write-Verbose "Sending a Hide-Update task to $Computername"
+        New-PSTask -Computername $Computername -Command $command      
+    } else {
+        if ($ISearchResult -eq $null) {$ISearchResult = Get-UpdateList -SearchObject}
         if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
             Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
             break
@@ -261,6 +306,33 @@ function Hide-Update {
         }
         $ISearchResult
     }
+}
+
+function Get-UpdateHistory {
+<#
+.SYNOPSIS
+Gets update history for the target computer.
+#>
+    [CmdletBinding()]
+    Param (
+        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = "."
+    )
+
+    Begin{}
+    Process{
+        if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+            Invoke-Command -ComputerName $Computername -scriptblock {import-module PSWU; $output = Get-UpdateHistory; $output}
+        } else {
+            $Searcher = New-Object -ComObject Microsoft.Update.Searcher
+            #$Searcher.Online = $false #try an offline search!
+            $HistoryCount = $Searcher.GetTotalHistoryCount()
+            $History = $Searcher.QueryHistory(0, $HistoryCount)            
+            foreach ($u in $History) {
+                Write-Output "$(get-date $u.Date -format yyyyMMdd-HH:mm:ss), $($u.Title)"
+            }
+        }
+    }
+    End{}
 }
 
 function Get-UpdateList {
@@ -277,7 +349,7 @@ The abbreviated column headers are:
  | | | | | |---- "E" if EULA accepted, "-" if not
  | | | | |------ "R" if reboot required, "-" if not (frequently wrong!)
  | | | |-------- "D" if the update has been downloaded, "-" if not
- | | |---------- "H" if the update is hiden, "-" if not
+ | | |---------- "H" if the update is hidden, "-" if not
  | |------------ "S" if software, "D" if driver
  |-------------- "I" if installed, "-" if not
 
@@ -291,6 +363,11 @@ The search criteria, see http://goo.gl/7nZSPs
 Left at default, it will return all software updates that have not yet
 been installed. Driver updates are ignored, but Hidden updates are shown
 with the "H" flag set.
+
+.PARAMETER SearchObject
+This switch is used when an ISearchResult object (http://goo.gl/pvnUSM) must be returned.
+For most manual uses you can ignore this; the module will should provide it when
+needed internally.
 
 .NOTES
 Returns an IUpdateCollection (http://goo.gl/8C2dbb) named IUpdateCollection
@@ -318,19 +395,26 @@ Shows that there are 40 updates available.
 
     [CmdletBinding()]
     Param (
-        [Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=0)] $Computername = ".",
-        [Parameter(Mandatory=$false, ValueFromPipeline=$false, Position=1)] $Criteria = "IsInstalled=0 and Type='Software'"
+        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".",
+        [Parameter(ValueFromPipeline=$false, Position=1)] [string]$Criteria = "IsInstalled=0 and Type='Software'",
+        [Parameter(Position=2)] [switch]$SearchObject
     )
 
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
-        #following line thanks to http://serverfault.com/a/407379/3437 ... icnivad, you rock!
-        #Causes this function to be invoked remotely on the target PC, where the ELSE condition will be true.
-        Invoke-Command -ComputerName $Computername -ScriptBlock ${function:Get-UpdateList} -ArgumentList $Computername,$Criteria
+        #The following IF clause looks silly, but I could not find a cleaner way to send a switch param to remote PC
+        #try this at some point: http://goo.gl/R0oi0F
+        Write-Verbose "Invoking Get-UpdateList on $Computername"
+        if ($SearchObject) {
+            $sb = {import-module PSWU; $output = Get-UpdateList -Computername . -Criteria $Using:Criteria -SearchObject; $output}
+        } else {
+            $sb = {import-module PSWU; $output = Get-UpdateList -Computername . -Criteria $Using:Criteria; $output}
+        }
+        Invoke-Command -ComputerName $Computername -ScriptBlock $sb
     } else {
         $Searcher = New-Object -ComObject Microsoft.Update.Searcher
-        $Searcher.Online = $false #try an offline search!
+        #$Searcher.Online = $false #try an offline search!
         $ISearchResult = $Searcher.Search($Criteria)
-        $ISearchResult.Updates
+        if ($SearchObject) {$ISearchResult} else {$ISearchResult.Updates}
     }    
 }
 
@@ -347,48 +431,85 @@ function Install-Update {
 
     [CmdletBinding()]
     Param (
-        [parameter(Mandatory=$false, ValueFromPipeline=$true,Position=0)]$Computername = ".",
-        [parameter(Mandatory=$false, ValueFromPipeline=$true,Position=1)]$IUpdateCollection,
-        [parameter(Mandatory=$false, ValueFromPipeline=$true,Position=2)][switch]$OneByOne
+        [parameter(ValueFromPipelineByPropertyName=$true, Position=0)][string]$Computername = ".",
+        [parameter(ValueFromPipeline=$true, Position=1)]$ISearchResult,
+        [parameter(Position=2)][switch]$OneByOne,
+        [parameter(ValueFromPipeline=$true,Position=3)][switch]$Reboot = $false
         )
-    <#
-        This is working well locally. But FAILS remotely, because the IUpdateCollection is a deserialized object
-        and it does not have the AcceptEULA method. Attionally, $DesiredUpdates.Add($u) fails with "Specified cast is not valid."
-
-        Moving Get-UpdateList into the ELSE clause will not work, because the remote system is not guaranteed to have the
-        function/cmdlet.
-
-        Worst case? Replicate the code of Get-UpdateList in the ELSE clause (wrapped in its own IF statement)
-        Remember, whatever solution is used here will also be needed in Hide-Update.
-
-        Can I populate a variable on the remote machine?
-    #>
-
-    if ($IUpdateCollection -eq $null) {$IUpdateCollection = Get-UpdateList $Computername}
+    [bool]$rebootstatus = Test-RebootNeeded -Computername $Computername
+    if ($rebootstatus -eq $true) {
+        Write-Error "$Computername pending reboot status is: .$rebootstatus. - please reboot before applying further updates."
+        break
+    }
+    Write-Host "$Computername pending reboot status is: .$rebootstatus."
+    
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
-        #following line thanks to http://serverfault.com/a/407379/3437 ... icnivad, you rock!
-        #Causes this function to be invoked remotely on the target PC, where the ELSE condition will be true.
-        Invoke-Command -ComputerName $Computername -ScriptBlock ${function:Install-Update} -ArgumentList $Computername,$IUpdateCollection,$OneByOne
+        #this clause runs when a remote machine has been specified        
+        if ($OneByOne) {
+            $command = "&import-module pswu;Install-Update -OneByOne"
+        } else {
+            $command = "&import-module pswu;Install-Update"
+        }
+        Write-Verbose "Sending an Install-Update task to $Computername"
+        if ($Reboot) {
+            New-PSTask -Computername $Computername -Command $command -Reboot -Verbose
+        } else {
+            New-PSTask -Computername $Computername -Command $command  -Verbose
+        }
+        <# Hateful Note.             
+           Creating/running a task on the remote PC and running is FAR FROM OPTIMAL.
+           It's just the best thing I could come up with after multiple failed attempts.
+           This is not a question of what user context the (remote) commands run in; I have tried as SYSTEM
+           IUpdateDownloader (IUD) and IUpdateInstaller (IUI) refuse to be invoked remotely and they
+           seem really good at knowing it, though I still don't know exactly *how* they know.           
+           See https://goo.gl/Afi70J
+           I tried:
+           * http://serverfault.com/a/407379/3437 ... IUD knows it was called remotely
+           * http://stackoverflow.com/a/14442352/2383 ... IUD knows
+           * Pushing all of PSWU to remotePC then running it:
+             * icm remotePC {import-module PSWU;install-update} ... IUD knows
+             * icm remotePC {powershell.exe -command '&import-module pswu;install-update'} ... IUD knows
+             * enter-pssession <sessionid> then run cmdlets local to remotePC ... IUD knows
+             * Invoking powershell process via WMI as in http://goo.gl/Yy1iRP ... IUD knows
+           * Kicking off WU itself as in https://goo.gl/Thm9k7 {wuauclt /detectnow ; wuauclt /updatenow}
+             * There seems no clean way to rely on this, nor to find out when it completes.
+        #>
     } else {
-        $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
+        #this clause runs when the cmdlet is invoked locally
+        $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
+        Write-Log $Logfile "Install-Update is starting (as $env:username)."
+        if ($ISearchResult -eq $null) {
+            $ISearchResult = Get-UpdateList -SearchObject            
+        }
+        if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
+            Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
+            Write-Log $Logfile 
+            break
+        }
+        Write-Verbose "Update count: $($ISearchResult.Updates.Count)"
+        $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl 
         $counter = 0
-        foreach ($u in $IUpdateCollection) {
-            $u.AcceptEula() 
+        foreach ($u in $ISearchResult.Updates) {
+            Write-Verbose "Adding $counter $($u.Title)"
+            $u
+            if (!$($u.EulaAccepted)) {$u.AcceptEula()}
             if (!$($u.IsHidden)) { 
                 $counter++
                 $DesiredUpdates.Add($u) |out-null 
-            }
-            #Used for debugging. One update at a time.
+            }            
             if ($OneByOne) { 
-                if ($counter -gt 1) {break}
+                #Used for debugging. One update at a time.
+                if ($counter -gt 0) {break}
             }      
         }
 
         If ($DesiredUpdates.Count -lt 1) { 
-            Write-Verbose "No updates to install!"
+            Write-Output "No updates to install!"
         } else {
-            Write-Verbose "Downloading and installing $($DesiredUpdates.Count) updates" 
+            Write-Output "Downloading and installing $($DesiredUpdates.Count) updates" 
+            #IUpdateDownloader, https://goo.gl/hPK49j
             $Downloader = New-Object -ComObject Microsoft.Update.Downloader
+            Write-Output "nextline"
             $Downloader.Updates = $DesiredUpdates
             $DownloadResult = $Downloader.Download()
             #Resultcode 2-success, 3-success with errors. 
@@ -410,3 +531,171 @@ function Install-Update {
         }
     }
 }
+
+function Install-RemotePSWU {
+<#
+.SYNOPSIS
+Installs PSWU to remote computer
+
+.NOTES
+Follow the rules at https://goo.gl/OjL8Nt
+Note that Win7 and below do not have C:\Program Files\WindowsPowerShell\Modules
+in $env:PSModulePath. I read the rules as saying it is OK to add that path.
+#>
+
+    [CmdletBinding()]
+    Param (
+        [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$Computername,
+        [parameter(Position=1)][switch]$Update
+        
+    )
+
+    Write-Verbose "Beginning Install-RemotePSWU"
+    #need a mechanism to remotely check whether module is usable
+    #construct a UNC filepath to where the remote PSWU installation should be
+    $RemoteSystemDrive = Invoke-Command -ComputerName $Computername {$env:SystemDrive}    
+    $RemoteSysDriveShare = $RemoteSystemDrive -replace ":","$"
+    $RemotePSWUDir = "\\" + $Computername + "\" + $RemoteSysDriveShare + "\Program Files\WindowsPowerShell\Modules\PSWU"
+    [boolean]$PSWUdirExists = $true
+    if (!(Test-Path $RemotePSWUDir)) {$Update = $true; $PSWUdirExists = $false}
+    #if it is not there, install it
+    if ($Update) {
+        if ($PSWUdirExists) {
+            Write-Verbose "Updating PSWU on $Computername"
+        } else {
+            Write-Verbose "$RemotePSWUDir DOES NOT exist on $Computername, installing PSWU there"
+            New-Item -path $RemotePSWUDir -ItemType Directory | out-null
+        }        
+        #copy the files, unblock them
+        $LocalPSWUPath = (Get-Module PSWU).ModuleBase
+        Copy-Item $LocalPSWUPath\* $RemotePSWUDir -Force
+        Unblock-File -Path $RemotePSWUDir\*
+        #Win7 and below do not have the default PSModulePath '%systemdrive%\Program Files\WindowsPowerShell\Modules'  
+        #detect this and add to SYSTEM profile if necessary
+        $RemotePSModPath = Invoke-Command $Computername {[System.Environment]::GetEnvironmentVariable("PSModulePath", "Machine")}
+        $PathToAdd = $RemoteSystemDrive + '\Program Files\WindowsPowerShell\Modules'        
+        if (($RemotePSModPath -split ";") -NotContains $PathToAdd ) {
+            $NewRemotePSModPath = $RemotePSModPath + ";" + $PathToAdd
+            Invoke-Command $Computername {
+                [System.Environment]::SetEnvironmentVariable("PSModulePath", $Using:NewRemotePSModPath, "Machine")
+                import-module PSWU
+                Get-ExecutionPolicy
+            }            
+        }
+        Write-Verbose "PSWU installed/updated on $Computername"     
+    }
+
+}
+
+function New-PSTask {
+<#
+.SYNOPSIS
+Creates a scheduledtask
+
+.NOTES
+
+#>
+    [CmdletBinding()]
+    Param (
+        [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$Computername,
+        [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=1)][string]$Command,
+        [parameter(ValueFromPipeline=$true,Position=2)][switch]$Reboot = $false
+    )
+    
+    #Task Scheduler Scripting Objects https://goo.gl/iFYhlB 
+    #Loosely emulating this example - https://goo.gl/9BHrQW
+    #TaskService object, https://goo.gl/ewm1Th
+    $Scheduler = New-Object -ComObject Schedule.Service
+    #TODO: Check for existing task with this name. Especially if it is running!
+    $Scheduler.Connect($Computername)
+    if ($Scheduler.Connected) {  
+        $Task = $Scheduler.NewTask(0)
+        #Task Definition Object https://goo.gl/UQbjMA
+        $Task.Settings.MultipleInstances = 2 #Don't allow multiple instances of this task
+        $Task.RegistrationInfo.Description = "Task created by PSWU script."
+        #Principal object, https://goo.gl/u99qVL
+        $Task.Principal.Runlevel = 1 #highest
+
+        #Task Action definition https://goo.gl/3qA7Qy
+        $Action = $Task.Actions.Create(0) #0 = Executable
+        $Action.Path = "powershell.exe"
+        $Action.Arguments = "-ExecutionPolicy Unrestricted -Command $Command"      
+
+        #Taskfolder object, https://goo.gl/AWZM9j
+        $TaskFolder = $Scheduler.GetFolder("\")
+        #TODO - Verify no existing PSWU task 
+        $CreatedTask = $TaskFolder.RegisterTaskDefinition("PSWU", $Task, 6, "SYSTEM", $Null, 3)
+        
+        #Run task if verified in READY state
+        if ($($CreatedTask.State) -eq 3) {
+            Write-Verbose "Task was created"
+            $TaskFolder.GetTask("PSWU").Run(0) |Out-Null
+            #Task should enter RUNNING state. Monitor for state change. 
+            if ($($CreatedTask.State) -eq 4) {
+                Write-Verbose "PSWU task started on $Computername, waiting for completion."
+                $i = 0
+                While ($($CreatedTask.State) -eq 4) {
+                    Start-Sleep -Seconds 10
+                    Write-Host -NoNewline "."
+                    $i++
+                }
+                Write-Host
+            }
+
+            #Task states https://goo.gl/SugOUy
+            switch ($($CreatedTask.State)) {
+                0 {$state = "UNKNOWN"}
+                1 {$state = "DISABLED"}
+                2 {$state = "QUEUED"}
+                3 {$state = "READY"}
+                4 {$state = "RUNNING"}
+            }
+            Write-Verbose "PSWU task on $Computername is in $state state."
+
+            #LastTaskResult states from https://goo.gl/rR128s
+            #Apparently no MS docs on this; https://goo.gl/GRxUHz
+            switch ($($CreatedTask.LastTaskResult)) {
+                0 {$lastrunstate = "COMPLETED SUCCESSFULLY"}
+                1 {$lastrunstate = "UNKNWON/INCORRECT FUNCTION CALL"}
+                2 {$lastrunstate = "FILE NOT FOUND"}
+                10 {$lastrunstate = "INCORRECT ENVIRONMENT"}
+            }
+            Write-Verbose "PSWU task on $Computername last run state: $lastrunstate"
+
+            #Delete the task, report pending-reboot status
+            $TaskFolder.DeleteTask("PSWU",$Null)
+            #Probly should move this logic to whichever cmdlet calls New-PSTask
+            if ((Test-RebootNeeded -Computername $Computername) -eq $true) {
+                if ($Reboot) {
+                    Write-Verbose "Task completed; rebooting $Computername."
+                    Restart-Computer $Computername -force
+                } else {
+                    Write-Verbose "Task completed; please reboot $Computername."
+                }
+            } else {
+                Write-Verbose "Task completed; $Computername does NOT need reboot."
+            }
+        }
+    }
+
+}
+
+function test-remoteicm {
+    [CmdletBinding()]
+    Param ()
+    $true
+    write-output "hello"
+}
+
+function get-OSversion {
+<#
+.SYNOPSIS
+.NOTES
+#>
+    [CmdletBinding()]
+    Param ([Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".")
+    gwmi -ComputerName $Computername -Class win32_operatingsystem | select caption, version
+}
+
+#function reloadt7 {remove-module pswu;import-module pswu; Install-RemotePSWU t7 -Verbose -Update}
+#function reloadt81 {remove-module pswu;import-module pswu; Install-RemotePSWU t81 -Verbose -Update}
