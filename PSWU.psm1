@@ -318,21 +318,31 @@ Gets update history for the target computer.
         [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = "."
     )
 
-    Begin{}
-    Process{
-        if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
-            Invoke-Command -ComputerName $Computername -scriptblock {import-module PSWU; $output = Get-UpdateHistory; $output}
-        } else {
-            $Searcher = New-Object -ComObject Microsoft.Update.Searcher
-            #$Searcher.Online = $false #try an offline search!
-            $HistoryCount = $Searcher.GetTotalHistoryCount()
-            $History = $Searcher.QueryHistory(0, $HistoryCount)            
-            foreach ($u in $History) {
-                Write-Output "$(get-date $u.Date -format yyyyMMdd-HH:mm:ss), $($u.Title)"
+    if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        Invoke-Command -ComputerName $Computername -scriptblock {import-module PSWU; $output = Get-UpdateHistory; $output}
+    } else {
+        $Searcher = New-Object -ComObject Microsoft.Update.Searcher
+        #$Searcher.Online = $false #try an offline search!
+        $HistoryCount = $Searcher.GetTotalHistoryCount()
+        $History = $Searcher.QueryHistory(0, $HistoryCount)            
+        foreach ($u in $History) {            
+            switch ($($u.Operation)) {
+                1 {$operation = "Installation"}
+                2 {$operation = "Uninstallation"}
             }
+            switch ($($u.ResultCode)) {
+                0 {$resultcode = "NotStarted"}
+                1 {$resultcode = "InProgress"}
+                2 {$resultcode = "Succeeded"}
+                3 {$resultcode = "SucceededWithErrors"}
+                4 {$resultcode = "Failed"}
+                5 {$resultcode = "Aborted"}
+            }
+            Write-Output "$(Get-LocalTime $($u.Date)), $operation, $resultcode, $($u.Title)"
+            #TODO: make a nice object and a PSWUformat for this
         }
     }
-    End{}
+
 }
 
 function Get-UpdateList {
@@ -680,21 +690,12 @@ Creates a scheduledtask
 
 }
 
-function test-remoteicm {
-    [CmdletBinding()]
-    Param ()
-    $true
-    write-output "hello"
-}
-
-function get-OSversion {
-<#
-.SYNOPSIS
-.NOTES
-#>
-    [CmdletBinding()]
-    Param ([Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".")
-    gwmi -ComputerName $Computername -Class win32_operatingsystem | select caption, version
+Function Get-LocalTime($UTCTime) {
+#Thanks Tao Yang: http://goo.gl/R0w1Fk
+    $strCurrentTimeZone = (Get-WmiObject win32_timezone).StandardName
+    $TZ = [System.TimeZoneInfo]::FindSystemTimeZoneById($strCurrentTimeZone)
+    $LocalTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($UTCTime, $TZ)
+    Return $LocalTime
 }
 
 #function reloadt7 {remove-module pswu;import-module pswu; Install-RemotePSWU t7 -Verbose -Update}
