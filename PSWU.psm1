@@ -306,7 +306,8 @@ function Hide-Update {
     
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified
-        #NOTE< reason for this scheduled task explained at "Hateful Note" in Install-Update    
+        #NOTE: reason for this scheduled task explained at "Hateful Note" in Install-Update
+        $KBID = $KBID -Join ","
         if ($UnHide) {
             $command = "&import-module pswu;Hide-Update -UnHide -KBID $KBID"
         } else {
@@ -680,7 +681,7 @@ be rebooted.
         [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=1)][string]$Command,
         [parameter(ValueFromPipeline=$true,Position=2)][switch]$Reboot = $false
     )
-    
+
     #Task Scheduler Scripting Objects https://goo.gl/iFYhlB 
     #Loosely emulating this example - https://goo.gl/9BHrQW
     #TaskService object, https://goo.gl/ewm1Th
