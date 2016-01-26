@@ -327,7 +327,6 @@ function Hide-Update {
                 if ($KBID -contains $($u.KbArticleIDs)) {$u.isHidden = $true}
             }
         }
-        $ISearchResult
     }
 }
 
@@ -479,9 +478,9 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
     [CmdletBinding()]
     Param (
         [parameter(ValueFromPipelineByPropertyName=$true, Position=0)][string]$Computername = ".",        
-        [parameter(ValueFromPipeline=$true,Position=2)][switch]$SkipOptional = $false,
-        [parameter(ValueFromPipeline=$true,Position=3)][switch]$Reboot = $false,
-        [parameter(ValueFromPipeline=$true, Position=1)]$ISearchResult,
+        [parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional = $false,
+        [parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Reboot = $false,
+        [parameter(ValueFromPipeline=$true, Position=3)]$ISearchResult,
         [parameter(Position=2)][switch]$OneByOne        
         )
     [bool]$rebootstatus = Test-RebootNeeded -Computername $Computername
@@ -489,7 +488,6 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         Write-Error "$Computername pending reboot status is: .$rebootstatus. - please reboot before applying further updates."
         break
     }
-    Write-Host "$Computername pending reboot status is: .$rebootstatus."
     
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified        
@@ -524,8 +522,8 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         #>
     } else {
         #this clause runs when the cmdlet is invoked locally
-        $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
-        Write-Log $Logfile "Install-Update is starting (as $env:username)."
+        If ((Test-AdminPrivs) -ne $true) {Write-Error "Admin privs required"; break}
+        Write-Verbose "Install-Update is starting (as $env:username)."
         if ($ISearchResult -eq $null) {
             $ISearchResult = Get-UpdateList -SearchObject            
         }
@@ -539,7 +537,6 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         $counter = 0
         foreach ($u in $ISearchResult.Updates) {
             Write-Verbose "Adding $counter $($u.Title)"
-            $u
             [bool]$ApplyUpdate = $true
             #"BrowseOnly" is seen in GUI as "Optional"; Don't apply if SkipOptional param is present    
             if (($SkipOptional -eq $true) -and ($($u.BrowseOnly) -eq $true)) {$ApplyUpdate = $false}
@@ -557,12 +554,11 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         }
 
         If ($DesiredUpdates.Count -lt 1) { 
-            Write-Output "No updates to install!"
+            Write-Verbose "No updates to install!"
         } else {
-            Write-Output "Downloading and installing $($DesiredUpdates.Count) updates" 
+            Write-Verbose "Downloading $($DesiredUpdates.Count) updates"
             #IUpdateDownloader, https://goo.gl/hPK49j
             $Downloader = New-Object -ComObject Microsoft.Update.Downloader
-            Write-Output "nextline"
             $Downloader.Updates = $DesiredUpdates
             $DownloadResult = $Downloader.Download()
             #Resultcode 2-success, 3-success with errors. 
@@ -572,13 +568,24 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
             } else {
                 if ($DownloadResult.ResultCode -eq 3) {Write-Verbose "Downloaded with errors; beginning install."}
                 if ($DownloadResult.ResultCode -eq 2) {Write-Verbose "Downloaded successfully; beginning install."}
+                Write-Verbose "Installing $($DesiredUpdates.Count) updates"
                 $Installer = New-Object -ComObject Microsoft.Update.Installer
                 $Installer.Updates = $DesiredUpdates
                 $InstallResult = $Installer.Install()
                 switch ($InstallResult.ResultCode) {
                     2 {Write-Verbose "Installed updates successfully."}
                     3 {Write-Verbose "Installed updates with errors."}
-                    default {Write-Error "Installer error $($InstallResult.HResult),resultcode $($InstallResult.ResultCode)"}
+                    default {Write-Error "Installer error $($InstallResult.HResult), resultcode $($InstallResult.ResultCode)"}
+                }
+                if ((Test-RebootNeeded) -eq $true) {
+                    if ($Reboot) {
+                        Write-Warning "Updates installed; rebooting."
+                        Restart-Computer -force
+                    } else {
+                        Write-Warning "Updates installed; please reboot soon."
+                    }
+                } else {
+                    Write-Verbose "Updates installed; reboot NOT needed."
                 }
             }
         }
