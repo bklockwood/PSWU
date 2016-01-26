@@ -13,7 +13,10 @@
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>I</Label>
-                    </TableColumnHeader>                  
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>O</Label>
+                    </TableColumnHeader>                
                     <TableColumnHeader>
                         <Label>T</Label>
                     </TableColumnHeader>  
@@ -50,6 +53,9 @@
                             </TableColumnItem>
                             <TableColumnItem>
                                 <Scriptblock>if ($_.isInstalled -eq 1) {"I"} Else {"-"}</Scriptblock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <Scriptblock>if ($_.BrowseOnly -eq $true) {"O"} Else {"*"}</Scriptblock>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <Scriptblock>if ($_.Type -eq 1) {"S"} ElseIf ($_.Type -eq 2) {"D"}</Scriptblock>

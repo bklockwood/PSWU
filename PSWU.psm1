@@ -385,14 +385,15 @@ Gets list of updates from Windows Update.
 By default, output is columnized as shown in example 1.
 The abbreviated column headers are:
 
- I T H D R E MB
- | | | | | |  |- Maximum download size, in megabytes
- | | | | | |---- "E" if EULA accepted, "-" if not
- | | | | |------ "R" if reboot required, "-" if not (frequently wrong!)
- | | | |-------- "D" if the update has been downloaded, "-" if not
- | | |---------- "H" if the update is hidden, "-" if not
- | |------------ "S" if software, "D" if driver
- |-------------- "I" if installed, "-" if not
+ I O T H D R E MB
+ | | | | | | |  |- Maximum download size, in megabytes
+ | | | | | | |---- "E" if EULA accepted, "-" if not
+ | | | | | |------ "R" if reboot required, "-" if not (frequently wrong!)
+ | | | | |-------- "D" if the update has been downloaded, "-" if not
+ | | | |---------- "H" if the update is hidden, "-" if not
+ | | |------------ "S" if software, "D" if driver
+ | |-------------- "O" if optional, "*" if not
+ |---------------- "I" if installed, "-" if not
 .PARAMETER Computername
 The target computer. Defaults to the local PC. 
 .PARAMETER  Criteria
@@ -456,15 +457,16 @@ function Install-Update {
 Downloads and installs updates.
 .PARAMETER Computername
 The target computer. Defaults to the local PC. 
+.PARAMETER SkipOptional
+If this switch parameter is given, "Optional" updates will not be installed.
+.PARAMETER Reboot
+If this switch parameter is provided, the system will be rebooted - but *only*
+if the update(s) installed left the system in a 'needs reboot' state.
 .PARAMETER ISearchResult
 An ISearchResult returned by the Get-UpdateList cmdlet.
 If not provided, that cmdlet will be run to fetch one.
 .PARAMETER OneByOne
 Used for debugging. Allows only one update to be downloaded and installed.
-.PARAMETER Reboot
-If this switch parameter is provided, the system will be rebooted - but *only*
-if the update(s) installed left the system in a 'needs reboot' state.
-the 
 .NOTES
 Uses IUpdateDownloader http://goo.gl/hPK49j
 and IUpdateInstaller http://goo.gl/jeDijU
@@ -476,10 +478,11 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
 
     [CmdletBinding()]
     Param (
-        [parameter(ValueFromPipelineByPropertyName=$true, Position=0)][string]$Computername = ".",
+        [parameter(ValueFromPipelineByPropertyName=$true, Position=0)][string]$Computername = ".",        
+        [parameter(ValueFromPipeline=$true,Position=2)][switch]$SkipOptional = $false,
+        [parameter(ValueFromPipeline=$true,Position=3)][switch]$Reboot = $false,
         [parameter(ValueFromPipeline=$true, Position=1)]$ISearchResult,
-        [parameter(Position=2)][switch]$OneByOne,
-        [parameter(ValueFromPipeline=$true,Position=3)][switch]$Reboot = $false
+        [parameter(Position=2)][switch]$OneByOne        
         )
     [bool]$rebootstatus = Test-RebootNeeded -Computername $Computername
     if ($rebootstatus -eq $true) {
@@ -537,9 +540,14 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         foreach ($u in $ISearchResult.Updates) {
             Write-Verbose "Adding $counter $($u.Title)"
             $u
-            if (!$($u.EulaAccepted)) {$u.AcceptEula()}
-            if (!$($u.IsHidden)) { 
+            [bool]$ApplyUpdate = $true
+            #"BrowseOnly" is seen in GUI as "Optional"; Don't apply if SkipOptional param is present    
+            if (($SkipOptional -eq $true) -and ($($u.BrowseOnly) -eq $true)) {$ApplyUpdate = $false}
+            #Do not apply update if hidden
+            if ($($u.IsHidden) -eq $true) {$ApplyUpdate = $false}
+            if ($ApplyUpdate -eq $true) { 
                 $counter++
+                if (!$($u.EulaAccepted)) {$u.AcceptEula()}
                 $DesiredUpdates.Add($u) |out-null 
             }            
             if ($OneByOne) { 
@@ -720,7 +728,7 @@ be rebooted.
             #Apparently no MS docs on this; https://goo.gl/GRxUHz
             switch ($($CreatedTask.LastTaskResult)) {
                 0 {$lastrunstate = "COMPLETED SUCCESSFULLY"}
-                1 {$lastrunstate = "UNKNWON/INCORRECT FUNCTION CALL"}
+                1 {$lastrunstate = "UNKNOWN/INCORRECT FUNCTION CALL"}
                 2 {$lastrunstate = "FILE NOT FOUND"}
                 10 {$lastrunstate = "INCORRECT ENVIRONMENT"}
             }
