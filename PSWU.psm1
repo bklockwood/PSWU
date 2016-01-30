@@ -1,7 +1,7 @@
 #requires -version 2.0
 #Set-StrictMode -Version 2.0
 
-function Install-AllUpdates {
+function Install-AllUpdatesOld {
 <#
 .SYNOPSIS
 Installs all available, non-hidden updates updates (including optional ones),
@@ -21,7 +21,6 @@ Install-AllUpdates
 .NOTES 
 flowchart: http://i.imgur.com/NSV8AH2.png
 #>
-
     
     [CmdletBinding()]
     Param(
@@ -103,6 +102,69 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         }
     }
     End{}
+}
+
+Function Install-AllUpdates {
+<#
+.SYNOPSIS
+Installs all available, non-hidden updates updates, rebooting as many times
+as necessary, until there are no more updates to install. 
+.PARAMETER SkipOptional
+If this switch parameter is given, "Optional" updates will not be installed.
+.PARAMETER Driver
+If this switch parameter is given, Driver updates (from WU) will be installed in
+addition to software updates.
+.PARAMETER OnlyDriver
+If this switch parameter is given, Driver updates (from WU) will be installed,
+software updates will be IGNORED.
+.EXAMPLE
+Install-AllUpdates 
+.NOTES 
+flowchart: http://i.imgur.com/NSV8AH2.png
+#>
+    Param (
+       [Parameter(ValueFromPipelineByPropertyName=$true,Position=0)][string]$Computername = ".",
+       [Parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional,
+       [Parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Driver,
+       [Parameter(ValueFromPipelineByPropertyName=$true,Position=3)][switch]$OnlyDriver   
+       )
+
+    if ($Driver -and $OnlyDriver) {
+        Write-Warning "Use -Driver *or* -OnlyDriver, not both at once!"
+        Write-Warning "Install-AllUpdates terminated."
+        break
+    }
+    if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        #this clause runs when a remote machine has been specified 
+        $Command = "&import-module pswu;Install-AllUpdate"
+        if ($SkipOptional) {$Command += " -SkipOptional"}
+        if ($Driver) {$Command += " -Driver"}
+        if ($OnlyDriver) {$Command += " -OnlyDriver"}
+        write-Output $command
+        break
+        Write-Verbose "Sending an Install-AllUpdates task to $Computername"
+        New-PSTask -Computername $Computername -Command $Command
+    } else {
+        $AdminStatus = Test-AdminPrivs
+        $RebootStatus = Test-RebootStatus -Computername
+        Write-Verbose "Install-AllUpdates starting. User= $env:username; Admin= $AdminStatus; NeedsReboot= $RebootStatus."
+        if ($AdminStatus -eq $false) {
+            Write-Error "Install-AllUpdates is not elevated; cannot continue."
+            break
+        }
+        if ($RebootStatus -eq $true) {
+            Write-Verbose "Install-AllUpdates found the system in need of a restart."
+            #check for PSWU Install-AllUpdates task. If not found, create one - to run at boot.
+            #reboot
+
+        } else {
+            #Get-Updatelist; provide list and count (as log entry)
+            #if count >0, Install-Update
+
+        }
+    }
+
+
 }
 
 Function Write-Log {
@@ -314,7 +376,8 @@ function Hide-Update {
             $command = "&import-module pswu;Hide-Update -KBID $KBID"
         }
         Write-Verbose "Sending a Hide-Update task to $Computername"
-        New-PSTask -Computername $Computername -Command $command      
+        New-PSTask -Computername $Computername -Taskname "PSWU Hide-Update" -Command $command | Invoke-PSTask 
+
     } else {
         if ($ISearchResult -eq $null) {$ISearchResult = Get-UpdateList -SearchObject}
         if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
@@ -479,10 +542,10 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
     [CmdletBinding()]
     Param (
         [parameter(ValueFromPipelineByPropertyName=$true, Position=0)][string]$Computername = ".",        
-        [parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional = $false,
-        [parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Reboot = $false,
+        [parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional,
+        [parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Reboot,
         [parameter(ValueFromPipeline=$true, Position=3)]$ISearchResult,
-        [parameter(Position=2)][switch]$OneByOne        
+        [parameter(Position=4)][switch]$OneByOne        
         )
     [bool]$rebootstatus = Test-RebootNeeded -Computername $Computername
     if ($rebootstatus -eq $true) {
@@ -499,9 +562,9 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         }
         Write-Verbose "Sending an Install-Update task to $Computername"
         if ($Reboot) {
-            New-PSTask -Computername $Computername -Command $command -Reboot -Verbose
+            New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask -Reboot
         } else {
-            New-PSTask -Computername $Computername -Command $command  -Verbose
+            New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask 
         }
         <# Hateful Note.             
            Creating/running a task on the remote PC and running is FAR FROM OPTIMAL.
@@ -677,9 +740,11 @@ be rebooted.
 #>
     [CmdletBinding()]
     Param (
-        [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$Computername,
+        [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$ComputerName,
+        [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$TaskName,
         [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=1)][string]$Command,
-        [parameter(ValueFromPipeline=$true,Position=2)][switch]$Reboot = $false
+        [parameter(ValueFromPipeline=$true,Position=2)][switch]$RunAtBoot
+        
     )
 
     #Task Scheduler Scripting Objects https://goo.gl/iFYhlB 
@@ -687,7 +752,7 @@ be rebooted.
     #TaskService object, https://goo.gl/ewm1Th
     $Scheduler = New-Object -ComObject Schedule.Service
     #TODO: Check for existing task with this name. Especially if it is running!
-    $Scheduler.Connect($Computername)
+    $Scheduler.Connect($ComputerName)
     if ($Scheduler.Connected) {  
         $Task = $Scheduler.NewTask(0)
         #Task Definition Object https://goo.gl/UQbjMA
@@ -699,65 +764,92 @@ be rebooted.
         #Task Action definition https://goo.gl/3qA7Qy
         $Action = $Task.Actions.Create(0) #0 = Executable
         $Action.Path = "powershell.exe"
-        $Action.Arguments = "-ExecutionPolicy Unrestricted -Command $Command"      
+        $Action.Arguments = "-ExecutionPolicy Unrestricted -Command $Command"
+        
+        #Task Trigger (at boot) definition, example https://goo.gl/vl1CCL
+        If ($RunAtBoot -eq $true) {$Task.Triggers.Create(8)}
+        #and now we have an issue: the rest of this cmdlet tries to run the task immediately.
 
         #Taskfolder object, https://goo.gl/AWZM9j
         $TaskFolder = $Scheduler.GetFolder("\")
         #TODO - Verify no existing PSWU task 
-        $CreatedTask = $TaskFolder.RegisterTaskDefinition("PSWU", $Task, 6, "SYSTEM", $Null, 3)
-        
-        #Run task if verified in READY state
-        if ($($CreatedTask.State) -eq 3) {
-            Write-Verbose "Task was created"
-            $TaskFolder.GetTask("PSWU").Run(0) |Out-Null
-            #Task should enter RUNNING state. Monitor for state change. 
-            if ($($CreatedTask.State) -eq 4) {
-                Write-Verbose "PSWU task started on $Computername, waiting for completion."
-                $i = 0
-                While ($($CreatedTask.State) -eq 4) {
-                    Start-Sleep -Seconds 10
-                    Write-Host -NoNewline "."
-                    $i++
-                }
-                Write-Host
-            }
+        $CreatedTask = $TaskFolder.RegisterTaskDefinition($TaskName, $Task, 6, "SYSTEM", $Null, 3)
+        Write-Verbose "New-PSTask has created task on $ComputerName"
+        $Properties = @{"ComputerName" = $ComputerName;
+            "TaskName" = $TaskName;
+            "TaskFolder" = $TaskFolder}
+        $output = New-Object -TypeName PSObject -Property $Properties
+        $output
+    }
+}
 
-            #Task states https://goo.gl/SugOUy
-            switch ($($CreatedTask.State)) {
-                0 {$state = "UNKNOWN"}
-                1 {$state = "DISABLED"}
-                2 {$state = "QUEUED"}
-                3 {$state = "READY"}
-                4 {$state = "RUNNING"}
-            }
-            Write-Verbose "PSWU task on $Computername is in $state state."
+Function Invoke-PSTask {
+<#
+#>
+    [CmdletBinding()]
+    Param (
+        [parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true, Position=0)][string]$ComputerName,
+        [parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true, Position=1)][string]$TaskName,
+        [parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true, Position=2)]$TaskFolder,
+        [parameter(ValueFromPipeline=$true, Position=3)][switch]$Reboot
+    )
 
-            #LastTaskResult states from https://goo.gl/rR128s
-            #Apparently no MS docs on this; https://goo.gl/GRxUHz
-            switch ($($CreatedTask.LastTaskResult)) {
-                0 {$lastrunstate = "COMPLETED SUCCESSFULLY"}
-                1 {$lastrunstate = "UNKNOWN/INCORRECT FUNCTION CALL"}
-                2 {$lastrunstate = "FILE NOT FOUND"}
-                10 {$lastrunstate = "INCORRECT ENVIRONMENT"}
+    $Task = $TaskFolder.GetTask($TaskName)
+    #Run task if verified in READY state
+    if ($($Task.State) -ne 3) {
+        Write-Warning "Invoke-Task is terminating; did not find task '$TaskName' in READY state."
+        break
+    } else {
+        $TaskFolder.GetTask($TaskName).Run(0) |Out-Null
+        Write-Verbose "Invoke-Task started task '$TaskName' in folder '$($TaskFolder.Name)' on $ComputerName."
+        #Task should enter RUNNING state. Monitor for state change. 
+        if ($($Task.State) -ne 4) {
+            Write-Warning "Invoke-Task could not start task '$TaskName'."
+        } else {
+            Write-Verbose "'$TaskName' was started on $ComputerName. Waiting for completion:"
+            $i = 0
+            While ($($Task.State) -eq 4) {
+                Start-Sleep -Seconds 10
+                Write-Host -NoNewline "."
+                $i++
             }
-            Write-Verbose "PSWU task on $Computername last run state: $lastrunstate"
+            Write-Host
+        }
 
-            #Delete the task, report pending-reboot status
-            $TaskFolder.DeleteTask("PSWU",$Null)
-            #Probly should move this logic to whichever cmdlet calls New-PSTask
-            if ((Test-RebootNeeded -Computername $Computername) -eq $true) {
-                if ($Reboot) {
-                    Write-Verbose "Task completed; rebooting $Computername."
-                    Restart-Computer $Computername -force
-                } else {
-                    Write-Verbose "Task completed; please reboot $Computername."
-                }
+        #Task states https://goo.gl/SugOUy
+        switch ($($Task.State)) {
+            0 {$state = "UNKNOWN"}
+            1 {$state = "DISABLED"}
+            2 {$state = "QUEUED"}
+            3 {$state = "READY"}
+            4 {$state = "RUNNING"}
+        }
+        Write-Verbose "PSWU task on $Computername is in $state state."
+
+        #LastTaskResult states from https://goo.gl/rR128s
+        #Apparently no MS docs on this; https://goo.gl/GRxUHz
+        switch ($($Task.LastTaskResult)) {
+            0 {$lastrunstate = "COMPLETED SUCCESSFULLY"}
+            1 {$lastrunstate = "UNKNOWN/INCORRECT FUNCTION CALL"}
+            2 {$lastrunstate = "FILE NOT FOUND"}
+            10 {$lastrunstate = "INCORRECT ENVIRONMENT"}
+        }
+        Write-Verbose "PSWU task on $Computername last run state: $lastrunstate"
+
+        #Delete the task, report pending-reboot status
+        $TaskFolder.DeleteTask($TaskName,$Null)
+        #Probly should move this logic to whichever cmdlet calls Invoke-PSTask
+        if ((Test-RebootNeeded -Computername $Computername) -eq $true) {
+            if ($Reboot) {
+                Write-Verbose "Task completed; rebooting $Computername."
+                Restart-Computer $Computername -force
             } else {
-                Write-Verbose "Task completed; $Computername does NOT need reboot."
+                Write-Verbose "Task completed; please reboot $Computername."
             }
+        } else {
+            Write-Verbose "Task completed; $Computername does NOT need reboot."
         }
     }
-
 }
 
 Function Get-LocalTime($UTCTime) {
