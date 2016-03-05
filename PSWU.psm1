@@ -127,47 +127,99 @@ flowchart: http://i.imgur.com/NSV8AH2.png
        [Parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional,
        [Parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Driver,
        [Parameter(ValueFromPipelineByPropertyName=$true,Position=3)][switch]$OnlyDriver   
-       )
+    )
 
     if ($Driver -and $OnlyDriver) {
         Write-Warning "Use -Driver *or* -OnlyDriver, not both at once!"
-        Write-Warning "Install-AllUpdates terminated."
+        Write-Warning "Install-AllUpdates terminating."
         break
     }
+
+    #Translate $PSBoundParameters hashtable into a string that can be passed to New-PSTask
+    $boundparams = ""
+    foreach ($key in $PSBoundParameters.Keys) {
+        switch ($PSBoundParameters.$key) {
+            $false {} #don't include switch params that evaluate false
+            $true {$boundparams += "-$key "} #do include switch params that are true, no need for the value
+            default {$boundparams += "-$key $($PSBoundParameters.$key) "} #include both param name and value for other param types
+        }
+    }
+
+    $Command = "&import-module pswu;Install-AllUpdates $boundparams"
+
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified 
-        $Command = "&import-module pswu;Install-AllUpdate"
-        if ($SkipOptional) {$Command += " -SkipOptional"}
-        if ($Driver) {$Command += " -Driver"}
-        if ($OnlyDriver) {$Command += " -OnlyDriver"}
-        write-Output $command
-        break
-        Write-Verbose "Sending an Install-AllUpdates task to $Computername"
-        New-PSTask -Computername $Computername -Command $Command
+        $status = "Install-AllUpdates calling New-PSTask. Computername: $Computername Command: $Command"
+        Write-Log -EventID 1 -Source Install-AllUpdates -EntryType Information -LogString $status
+        #TODO need errorchecking here. if the task can't be created, log an error and quit
+        New-PSTask -Computername $Computername -TaskName "PSWU Install-AllUpdates (FromRemote)" -Command $Command |Invoke-PSTask
     } else {
+        #this clause runs when the script has been invoked targeting local machine        
         $AdminStatus = Test-AdminPrivs
-        $RebootStatus = Test-RebootStatus -Computername
-        Write-Verbose "Install-AllUpdates starting. User= $env:username; Admin= $AdminStatus; NeedsReboot= $RebootStatus."
+        $RebootStatus = Test-RebootNeeded -Computername $Computername
+        $status = "Starting locally with params: $boundparams `r`n"
+        $status += "User= $env:username; Admin= $AdminStatus; NeedsReboot= $RebootStatus."
+        Write-Log -EventID 2 -Source Install-AllUpdates -EntryType Information -LogString $status    
+
         if ($AdminStatus -eq $false) {
-            Write-Error "Install-AllUpdates is not elevated; cannot continue."
+            $status = "Exiting. PSWU is not elevated; cannot continue."
+            Write-Log -EventID 3 -Source Install-AllUpdates -EntryType Error -LogString $status
             break
         }
+
         if ($RebootStatus -eq $true) {
-            Write-Verbose "Install-AllUpdates found the system in need of a restart."
-            #check for PSWU Install-AllUpdates task. If not found, create one - to run at boot.
-            #reboot
+            $status = "Restart needed. Creating startup task and rebooting."
+            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -LogString $status
+            New-PSTask -ComputerName $env:COMPUTERNAME -TaskName "PSWU Install-AllUpdates (AtBoot)" -Command $Command -RunAtBoot
 
-        } else {
-            #Get-Updatelist; provide list and count (as log entry)
-            #if count >0, Install-Update
-
+            $status = "Restart commence NOW"
+            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Restart-Computer -Force
+            Start-Sleep -Seconds 10
+            $status = "WTF (computer did not restart)"
+            Write-Log -EventID 5 -Source Install-AllUpdates -EntryType Error -LogString $status
+        } 
+               
+        $UpdateList = Get-UpdateList -SearchObject        
+        $DoNotApplyCount = 0
+        foreach ($u in $($UpdateList.Updates)) {
+            if (($u.isHidden) -or ($SkipOptional -and ($u.BrowseOnly))) {$DoNotApplyCount ++}
         }
+        $UpdatesToInstall = $($UpdateList.Updates.Count) - $DoNotApplyCount
+            
+        if ($UpdatesToInstall -gt 0) {
+            $status = "$UpdatesToInstall update(s) will be installed. `r`n"
+            if ($DoNotApplyCount -gt 0) {
+                $status += "$DoNotApplyCount ineligible updates (hidden or excluded by supplied params): `r`n $boundparams.`r`n" 
+            }
+            $status += "Calling: Install-Update -ISearchResult (updatelist) $boundparams"
+            Write-Log -EventID 6 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Install-Update -ISearchResult $UpdateList @PSBoundParameters
+
+            $status = "Returning to start."
+            Write-Log -EventID 7 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Install-AllUpdates -Computername $Computername @PSBoundParams           
+        } else {
+            $status = "Exiting. No eligible updates to install.`r`n"
+            if ($DoNotApplyCount -gt 0) {
+                $status += "$DoNotApplyCount ineligible updates (hidden, or excluded by params): `r`n $boundparams.`r`n" 
+            }
+            Write-Log -EventID 8 -Source Install-AllUpdates -EntryType Information -LogString $status
+            $Scheduler = New-Object -ComObject Schedule.Service
+            $Scheduler.Connect($ComputerName)
+            if ($Scheduler.Connected) {
+                $TaskFolder = $Scheduler.GetFolder("\")
+                $Tasks = $TaskFolder.GetTasks(0)
+                $Tasks.Count
+                foreach ($task in $Tasks) {
+                    if ($($task.name).StartsWith("PSWU")) {$TaskFolder.DeleteTask($task.name,0)}
+                }
+            }            
+        }        
     }
-
-
 }
 
-Function Write-Log {
+Function Write-LogOld {
 <#
 .SYNOPSIS
 Logs short statements, with timestamps, to file defined by $Logfile
@@ -189,6 +241,45 @@ Write-Log c:\logs\logfile.txt "This is a log entry"
    Out-file -FilePath $Logfile -Append -NoClobber -InputObject $Logtext -Encoding ascii
    #Write-Host intentional here! $Logtext must *not* go into pipeline.
    Write-Host $Logtext
+}
+
+Function Write-Log {
+    Param (
+       [Parameter(Mandatory=$true,Position=0)][string]$EventID,
+       [Parameter(Mandatory=$true,Position=1)]
+        [ValidateSet("Information","Error","Warning")][string]$EntryType = "Information",
+       [Parameter(Mandatory=$true,Position=2)][string]$Source = "PSWU",
+       [Parameter(Mandatory=$true,Position=3)][string]$LogString
+    )        
+    
+    #Try to write to eventlog named "PSWU"; if that eventlog is not present, create it and try again.
+    [int]$retrycount = 0
+    [bool]$success = $false
+    
+    while (-not $success) { 
+        try {
+            Write-EventLog -LogName PSWU -Source $source -EventId $EventID -EntryType $EntryType `
+                -Message $LogString -ErrorAction Stop
+            switch ($EntryType) {
+                "Information" {Write-Verbose $LogString}
+                "Error" {Write-Error $LogString}
+                "Warning" {Write-Warning $LogString}
+                default {Write-Error "Bad EntryType parameter passed to Write-Log: $EntryType"}
+            }
+            $success = $true
+        } catch {
+            $sources = "Test-AdminPrivs","Test-RebootNeeded","Hide-Update","Install-AllUpdates",
+                "Get-UpdateHistory","Get-UpdateList","Install-Update","Install-RemotePSWU",
+                "New-PSTask","Invoke-PSTask","Get-Localtime","PSWU"
+            New-EventLog -LogName PSWU -Source $sources -ErrorAction SilentlyContinue
+        }
+
+        $retrycount ++
+        if ($retrycount -gt 1) {
+            Write-Error "Something wrong with event logging."
+            break
+        }
+    }
 }
 
 Function Format-Error {
@@ -252,6 +343,8 @@ Test-RebootNeeded -Computername AaronsPC
     [CmdletBinding()]
     [OutputType([bool])]
     Param([Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".")
+
+    Write-Verbose "Starting '$($MyInvocation.Line)'."
 
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified
@@ -376,7 +469,7 @@ function Hide-Update {
             $command = "&import-module pswu;Hide-Update -KBID $KBID"
         }
         Write-Verbose "Sending a Hide-Update task to $Computername"
-        New-PSTask -Computername $Computername -Taskname "PSWU Hide-Update" -Command $command | Invoke-PSTask 
+        New-PSTask -Computername $Computername -Taskname "PSWU Hide-Update" -Command $command | Invoke-PSTask -Follow
 
     } else {
         if ($ISearchResult -eq $null) {$ISearchResult = Get-UpdateList -SearchObject}
@@ -419,22 +512,26 @@ get-updatehistory t7
         $Searcher = New-Object -ComObject Microsoft.Update.Searcher
         #$Searcher.Online = $false #try an offline search!
         $HistoryCount = $Searcher.GetTotalHistoryCount()
-        $History = $Searcher.QueryHistory(0, $HistoryCount)            
-        foreach ($u in $History) {            
-            switch ($($u.Operation)) {
-                1 {$operation = "Install"}
-                2 {$operation = "Uninstall"}
+        if ($HistoryCount -gt 0) {
+            $History = $Searcher.QueryHistory(0, $HistoryCount)            
+            foreach ($u in $History) {            
+                switch ($($u.Operation)) {
+                    1 {$operation = "Install"}
+                    2 {$operation = "Uninstall"}
+                }
+                switch ($($u.ResultCode)) {
+                    0 {$resultcode = "NotStarted"}
+                    1 {$resultcode = "InProgress"}
+                    2 {$resultcode = "Success"}
+                    3 {$resultcode = "Success(Errors)"}
+                    4 {$resultcode = "Fail"}
+                    5 {$resultcode = "Abort"}
+                }
+                Write-Output "$(Get-LocalTime $($u.Date)), $operation, $resultcode, $($u.Title)"
+                #TODO: make a nice object and a PSWUformat for this
             }
-            switch ($($u.ResultCode)) {
-                0 {$resultcode = "NotStarted"}
-                1 {$resultcode = "InProgress"}
-                2 {$resultcode = "Success"}
-                3 {$resultcode = "Success(Errors)"}
-                4 {$resultcode = "Fail"}
-                5 {$resultcode = "Abort"}
-            }
-            Write-Output "$(Get-LocalTime $($u.Date)), $operation, $resultcode, $($u.Title)"
-            #TODO: make a nice object and a PSWUformat for this
+        } else {
+            Write-Output "No Update History to show!"
         }
     }
 
@@ -507,10 +604,14 @@ Shows that there are 5 updates available.
         }
         Invoke-Command -ComputerName $Computername -ScriptBlock $sb
     } else {
+        #running locally
         $Searcher = New-Object -ComObject Microsoft.Update.Searcher
         #$Searcher.Online = $false #try an offline search!
-        $ISearchResult = $Searcher.Search($Criteria)
+        $SecondsSpent = (Measure-Command {$ISearchResult = $Searcher.Search($Criteria)}).Seconds
+        #$ISearchResult = $Searcher.Search($Criteria)
         if ($SearchObject) {$ISearchResult} else {$ISearchResult.Updates}
+        $status = "$($ISearchResult.Updates.Count) update(s) found in $SecondsSpent seconds." 
+        Write-Log -EventID 52 -Source Get-UpdateList -EntryType Information -LogString $status
     }    
 }
 
@@ -541,15 +642,24 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
 
     [CmdletBinding()]
     Param (
-        [parameter(ValueFromPipelineByPropertyName=$true, Position=0)][string]$Computername = ".",        
-        [parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional,
-        [parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Reboot,
-        [parameter(ValueFromPipeline=$true, Position=3)]$ISearchResult,
+        [parameter(Position=0)][string]$Computername = ".",        
+        [parameter(Position=1)][switch]$SkipOptional,
+        [parameter(Position=2)][switch]$Reboot,
+        [parameter(Position=3)]$ISearchResult,
         [parameter(Position=4)][switch]$OneByOne        
-        )
+    )
+
+    foreach ($key in $PSBoundParameters.Keys) {
+        switch ($PSBoundParameters.$key) {
+            $true {$boundparams += "-$key "}
+            default {$boundparams += "-$key $($PSBoundParameters.$key) "}
+        }
+    }
+
     [bool]$rebootstatus = Test-RebootNeeded -Computername $Computername
     if ($rebootstatus -eq $true) {
-        Write-Error "$Computername pending reboot status is: .$rebootstatus. - please reboot before applying further updates."
+        $status ="$Computername pending reboot status is: .$rebootstatus. - please reboot before applying further updates."
+        Write-Log -EventID 20 -Source Install-Update -EntryType Error -LogString $status
         break
     }
     
@@ -560,11 +670,12 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         } else {
             $command = "&import-module pswu;Install-Update"
         }
-        Write-Verbose "Sending an Install-Update task to $Computername"
+        $status = "Install-Update is sending an Install-Update task to $Computername"
+        Write-Log -EventID 21 -Source Install-Update -EntryType Information -LogString $status
         if ($Reboot) {
-            New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask -Reboot
+            New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask -Reboot -Follow
         } else {
-            New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask 
+            New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask -Follow
         }
         <# Hateful Note.             
            Creating/running a task on the remote PC and running is FAR FROM OPTIMAL.
@@ -586,73 +697,106 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         #>
     } else {
         #this clause runs when the cmdlet is invoked locally
-        If ((Test-AdminPrivs) -ne $true) {Write-Error "Admin privs required"; break}
-        Write-Verbose "Install-Update is starting (as $env:username)."
+        $infostring = "Install-Update ran locally (as $env:username)`r`n"
+        $infostring += "Parameters given: $boundparams `r`n"
+        If ((Test-AdminPrivs) -ne $true) {
+            $status = "Admin privs required. Exiting. `r`n $infostring"
+            Write-Log -EventID 22 -Source Install-Update -EntryType Error -LogString $status
+            break
+        }
+
         if ($ISearchResult -eq $null) {
             $ISearchResult = Get-UpdateList -SearchObject            
         }
         if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
-            Write-Error "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM)"
-            Write-Log $Logfile 
+            $status = "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM). Exiting. `r`n $infostring"
+            Write-Log -EventID 24 -Source Install-Update -EntryType Error -LogString $status
             break
         }
-        Write-Verbose "Update count: $($ISearchResult.Updates.Count)"
+        if ($($ISearchResult.Updates.Count) -lt 1) {
+            $status = "Found no available updates. Exiting. `r `n $infostring"
+            Write-Log -EventID 25 -Source Install-Update -EntryType Information -LogString $status
+            break
+        }
+
+        $UpdateList = "`r`n"        
         $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl 
-        $counter = 0
+        $eligiblecounter = 0
+        $excludedcounter = 0
         foreach ($u in $ISearchResult.Updates) {
-            Write-Verbose "Adding $counter $($u.Title)"
             [bool]$ApplyUpdate = $true
             #"BrowseOnly" is seen in GUI as "Optional"; Don't apply if SkipOptional param is present    
             if (($SkipOptional -eq $true) -and ($($u.BrowseOnly) -eq $true)) {$ApplyUpdate = $false}
             #Do not apply update if hidden
             if ($($u.IsHidden) -eq $true) {$ApplyUpdate = $false}
             if ($ApplyUpdate -eq $true) { 
-                $counter++
+                $eligiblecounter++
                 if (!$($u.EulaAccepted)) {$u.AcceptEula()}
                 $DesiredUpdates.Add($u) |out-null 
-            }            
+                $UpdateList += "$($u.Title)`r`n"
+            } else {
+                $excludedcounter ++
+            }          
             if ($OneByOne) { 
                 #Used for debugging. One update at a time.
+                $UpdateList += "`r`nDebugging flag OneByOne was set.`r`n"
                 if ($counter -gt 0) {break}
             }      
         }
 
-        If ($DesiredUpdates.Count -lt 1) { 
-            Write-Verbose "No updates to install!"
+        if ($DesiredUpdates.Count -lt 1) {
+            $status = "No updates eligible for install, of $($ISearchResult.Updates.Count) found.`r`n"
+            $status += "$UpdateList `r`n"
+            $status += "Exiting. `r`n $infostring"
+            Write-Log -EventID 26 -Source Install-Update -EntryType Information -LogString $status
+            break
+        }
+        
+        $status = "$($DesiredUpdates.Count) eligible updates found. `r`n"
+        if ($excludedcounter -gt 0 ) {
+            $status += "$excludedcounter updates excluded (hidden or excluded by supplied params) `r`n $boundparams `r`n"
+        }
+        $status += "Proceeding to download and install:`r`n"
+        $status += "$UpdateList `r`n"
+        Write-Log -EventID 27 -Source Install-Update -EntryType Information -LogString $status
+        #IUpdateDownloader, https://goo.gl/hPK49j
+        $Downloader = New-Object -ComObject Microsoft.Update.Downloader
+        $Downloader.Updates = $DesiredUpdates
+        $DownloadResult = $Downloader.Download()
+        #Resultcode 2-success, 3-success with errors. 
+        #Using -contains instead of -in for PS v2 compat
+        if (2,3 -notcontains $DownloadResult.ResultCode) {
+            $status = "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode)"
+            Write-Log -EventID 28 -Source Install-Update -EntryType Error -LogString $status
         } else {
-            Write-Verbose "Downloading $($DesiredUpdates.Count) updates"
-            #IUpdateDownloader, https://goo.gl/hPK49j
-            $Downloader = New-Object -ComObject Microsoft.Update.Downloader
-            $Downloader.Updates = $DesiredUpdates
-            $DownloadResult = $Downloader.Download()
-            #Resultcode 2-success, 3-success with errors. 
-            #Using -contains instead of -in for PS v2 compat
-            if (2,3 -notcontains $DownloadResult.ResultCode) {
-                Write-Error "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode)"
-            } else {
-                if ($DownloadResult.ResultCode -eq 3) {Write-Verbose "Downloaded with errors; beginning install."}
-                if ($DownloadResult.ResultCode -eq 2) {Write-Verbose "Downloaded successfully; beginning install."}
-                Write-Verbose "Installing $($DesiredUpdates.Count) updates"
-                $Installer = New-Object -ComObject Microsoft.Update.Installer
-                $Installer.Updates = $DesiredUpdates
-                $InstallResult = $Installer.Install()
-                switch ($InstallResult.ResultCode) {
-                    2 {Write-Verbose "Installed updates successfully."}
-                    3 {Write-Verbose "Installed updates with errors."}
-                    default {Write-Error "Installer error $($InstallResult.HResult), resultcode $($InstallResult.ResultCode)"}
-                }
-                if ((Test-RebootNeeded) -eq $true) {
-                    if ($Reboot) {
-                        Write-Warning "Updates installed; rebooting."
-                        Restart-Computer -force
-                    } else {
-                        Write-Warning "Updates installed; please reboot soon."
-                    }
-                } else {
-                    Write-Verbose "Updates installed; reboot NOT needed."
+            if ($DownloadResult.ResultCode -eq 3) {$status = "Downloaded with errors; "}
+            if ($DownloadResult.ResultCode -eq 2) {$status = "Downloaded successfully; "}
+            $status += "beginning install of $($DesiredUpdates.Count) updates"
+            Write-Log -EventID 29 -Source Install-Update -EntryType Information -LogString $status
+            $Installer = New-Object -ComObject Microsoft.Update.Installer
+            $Installer.Updates = $DesiredUpdates
+            $InstallResult = $Installer.Install()
+            switch ($InstallResult.ResultCode) {
+                2 {$status = "Installed updates successfully."}
+                3 {$status = "Installed updates with errors."}
+                default {
+                    $status = "Installer error $($InstallResult.HResult), resultcode $($InstallResult.ResultCode)"
+                    Write-Log -EventID 30 -Source Install-Update -EntryType Error -LogString $status
                 }
             }
+            Write-Log -EventID 31 -Source Install-Update -EntryType Information -LogString $status
+            if ((Test-RebootNeeded) -eq $true) {
+                if ($Reboot) {
+                    Write-Log -EventID 32 -Source Install-Update -EntryType Warning -LogString "Updates installed; rebooting."
+                    Restart-Computer -force
+                } else {
+                    Write-Log -EventID 33 -Source Install-Update -EntryType Warning -LogString "Updates installed; please reboot soon."
+                }
+            } else {
+                Write-Log -EventID 34 -Source Install-Update -EntryType Information -LogString "Updates installed; reboot NOT needed."
+            }
         }
+        
     }
 }
 
@@ -753,7 +897,7 @@ be rebooted.
     $Scheduler = New-Object -ComObject Schedule.Service
     #TODO: Check for existing task with this name. Especially if it is running!
     $Scheduler.Connect($ComputerName)
-    if ($Scheduler.Connected) {  
+    if ($Scheduler.Connected) {
         $Task = $Scheduler.NewTask(0)
         #Task Definition Object https://goo.gl/UQbjMA
         $Task.Settings.MultipleInstances = 2 #Don't allow multiple instances of this task
@@ -772,14 +916,20 @@ be rebooted.
 
         #Taskfolder object, https://goo.gl/AWZM9j
         $TaskFolder = $Scheduler.GetFolder("\")
-        #TODO - Verify no existing PSWU task 
         $CreatedTask = $TaskFolder.RegisterTaskDefinition($TaskName, $Task, 6, "SYSTEM", $Null, 3)
-        Write-Verbose "New-PSTask has created task on $ComputerName"
+        $status = "Task $TaskName was created on $ComputerName"
+        Write-Log -EventID 61 -Source New-PSTask -EntryType Information -LogString $status
+
+        #Output object for consumption by Invoke-Task
         $Properties = @{"ComputerName" = $ComputerName;
             "TaskName" = $TaskName;
             "TaskFolder" = $TaskFolder}
         $output = New-Object -TypeName PSObject -Property $Properties
         $output
+    } else {
+        $status = "Could not connect to Task Scheduler on computer $ComputerName `r`n"
+        $status += "Params: `r`n $PSBoundParameters"
+        Write-Log -EventID 62 -Source New-PSTask -EntryType Error -LogString $status
     }
 }
 
@@ -791,9 +941,11 @@ Function Invoke-PSTask {
         [parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true, Position=0)][string]$ComputerName,
         [parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true, Position=1)][string]$TaskName,
         [parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true, Position=2)]$TaskFolder,
-        [parameter(ValueFromPipeline=$true, Position=3)][switch]$Reboot
+        [parameter(ValueFromPipeline=$true, Position=3)][switch]$Reboot,
+        [parameter(ValueFromPipeline=$true, Position=4)][switch]$Follow
     )
 
+    Write-Verbose "Starting: $($MyInvocation.Line)"
     $Task = $TaskFolder.GetTask($TaskName)
     #Run task if verified in READY state
     if ($($Task.State) -ne 3) {
@@ -802,52 +954,54 @@ Function Invoke-PSTask {
     } else {
         $TaskFolder.GetTask($TaskName).Run(0) |Out-Null
         Write-Verbose "Invoke-Task started task '$TaskName' in folder '$($TaskFolder.Name)' on $ComputerName."
-        #Task should enter RUNNING state. Monitor for state change. 
-        if ($($Task.State) -ne 4) {
-            Write-Warning "Invoke-Task could not start task '$TaskName'."
-        } else {
-            Write-Verbose "'$TaskName' was started on $ComputerName. Waiting for completion:"
-            $i = 0
-            While ($($Task.State) -eq 4) {
-                Start-Sleep -Seconds 10
-                Write-Host -NoNewline "."
-                $i++
-            }
-            Write-Host
-        }
-
-        #Task states https://goo.gl/SugOUy
-        switch ($($Task.State)) {
-            0 {$state = "UNKNOWN"}
-            1 {$state = "DISABLED"}
-            2 {$state = "QUEUED"}
-            3 {$state = "READY"}
-            4 {$state = "RUNNING"}
-        }
-        Write-Verbose "PSWU task on $Computername is in $state state."
-
-        #LastTaskResult states from https://goo.gl/rR128s
-        #Apparently no MS docs on this; https://goo.gl/GRxUHz
-        switch ($($Task.LastTaskResult)) {
-            0 {$lastrunstate = "COMPLETED SUCCESSFULLY"}
-            1 {$lastrunstate = "UNKNOWN/INCORRECT FUNCTION CALL"}
-            2 {$lastrunstate = "FILE NOT FOUND"}
-            10 {$lastrunstate = "INCORRECT ENVIRONMENT"}
-        }
-        Write-Verbose "PSWU task on $Computername last run state: $lastrunstate"
-
-        #Delete the task, report pending-reboot status
-        $TaskFolder.DeleteTask($TaskName,$Null)
-        #Probly should move this logic to whichever cmdlet calls Invoke-PSTask
-        if ((Test-RebootNeeded -Computername $Computername) -eq $true) {
-            if ($Reboot) {
-                Write-Verbose "Task completed; rebooting $Computername."
-                Restart-Computer $Computername -force
+        if ($Follow) {
+            #Task should enter RUNNING state. Monitor for state change. 
+            if ($($Task.State) -ne 4) {
+                Write-Warning "Invoke-Task could not start task '$TaskName'."
             } else {
-                Write-Verbose "Task completed; please reboot $Computername."
+                Write-Verbose "'$TaskName' was started on $ComputerName. Waiting for completion:"
+                $i = 0
+                While ($($Task.State) -eq 4) {
+                    Start-Sleep -Seconds 10
+                    Write-Host -NoNewline "."
+                    $i++
+                }
+                Write-Host
             }
-        } else {
-            Write-Verbose "Task completed; $Computername does NOT need reboot."
+
+            #Task states https://goo.gl/SugOUy
+            switch ($($Task.State)) {
+                0 {$state = "UNKNOWN"}
+                1 {$state = "DISABLED"}
+                2 {$state = "QUEUED"}
+                3 {$state = "READY"}
+                4 {$state = "RUNNING"}
+            }
+            Write-Verbose "PSWU task on $Computername is in $state state."
+
+            #LastTaskResult states from https://goo.gl/rR128s
+            #Apparently no MS docs on this; https://goo.gl/GRxUHz
+            switch ($($Task.LastTaskResult)) {
+                0 {$lastrunstate = "COMPLETED SUCCESSFULLY"}
+                1 {$lastrunstate = "UNKNOWN/INCORRECT FUNCTION CALL"}
+                2 {$lastrunstate = "FILE NOT FOUND"}
+                10 {$lastrunstate = "INCORRECT ENVIRONMENT"}
+            }
+            Write-Verbose "PSWU task on $Computername last run state: $lastrunstate"
+
+            #Delete the task, report pending-reboot status
+            $TaskFolder.DeleteTask($TaskName,$Null)
+            #Probly should move this logic to whichever cmdlet calls Invoke-PSTask
+            if ((Test-RebootNeeded -Computername $Computername) -eq $true) {
+                if ($Reboot) {
+                    Write-Verbose "Task completed; rebooting $Computername."
+                    Restart-Computer $Computername -force
+                } else {
+                    Write-Verbose "Task completed; please reboot $Computername."
+                }
+            } else {
+                Write-Verbose "Task completed; $Computername does NOT need reboot."
+            }
         }
     }
 }
