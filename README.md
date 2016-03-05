@@ -7,6 +7,6 @@ PowerShell Windows Update. CLI/scripted windows updates!
 
 If you want stability (but less features by far), use the [v1.1 release](https://github.com/bklockwood/PSWU/releases/tag/v1.1).
 
-As always, feedback is heartily welcomed. Positive feedback, negative feedback, bug reports, feature requests, whatever. I want to hear from you! File an issue, or contact me on IRC (my nick on [freenode](http://freenode.net/) is mota).
+As always, feedback is heartily welcomed. Positive feedback, negative feedback, bug reports, feature requests, whatever. I want to hear from you! File an issue, or contact me on IRC (my nick on [freenode](http://freenode.net/) is **mota**).
 
 More info on the [wiki page.](https://github.com/bklockwood/PSWU/wiki)
