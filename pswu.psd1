@@ -12,7 +12,7 @@
 ModuleToProcess = '.\pswu.psm1'
 
 # Version number of this module.
-ModuleVersion = '1.2'
+ModuleVersion = '1.3'
 
 # ID used to uniquely identify this module
 GUID = '2cfc6d2b-5e41-4079-8223-856e0ca2dd08'
