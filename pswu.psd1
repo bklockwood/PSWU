@@ -24,10 +24,10 @@ Author = 'Bryan Lockwood'
 # CompanyName = 'Unknown'
 
 # Copyright statement for this module
-Copyright = '(CC BY 4.0) 2015 Bryan Lockwood. http://creativecommons.org/licenses/by/4.0/'
+Copyright = '(CC BY 4.0) 2016 Bryan Lockwood. http://creativecommons.org/licenses/by/4.0/'
 
 # Description of the functionality provided by this module
-Description = 'CLI Windows Update'
+Description = 'Windows Update via CLI'
 
 # Minimum version of the Windows PowerShell engine required by this module
 PowerShellVersion = '2.0'
@@ -66,14 +66,10 @@ FormatsToProcess = @('.\pswuformats.ps1xml')
 # NestedModules = @()
 
 # Functions to export from this module
-FunctionsToExport = @('Write-Log','Test-AdminPrivs','Test-AdminPrivs','Test-RebootNeeded', 
-    'ScheduleRerunTask','CheckForScheduledTask','Hide-Update','Get-UpdateList','Show-UpdateList', 
-    'Install-Update','Install-AllUpdates','Install-RemotePSWU', 'New-PSTask', 'Get-UpdateHistory', 
-    'Get-LocalTime', 'Invoke-PSTask', 'Compare-PSWU')
+#FunctionsToExport = @()
 
 # Cmdlets to export from this module
-CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Update','Install-AllUpdates',
-    'Install-RemotePSWU', 'New-PSTask', 'Get-UpdateHistory', 'Get-LocalTime', 'Invoke-PSTask')
+#CmdletsToExport = @()
 
 # Variables to export from this module
 #VariablesToExport = '*'
@@ -85,7 +81,7 @@ CmdletsToExport = @('Hide-Update','Get-UpdateList','Show-UpdateList','Install-Up
 # ModuleList = @()
 
 # List of all files packaged with this module
-FileList = @('PSWU.psd1', 'PSWU.psm1', 'Install-Allupdates.ps1')
+FileList = @('pswu.psd1', 'PSWU.psm1', 'pswuformats.ps1xml')
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess
 # PrivateData = ''

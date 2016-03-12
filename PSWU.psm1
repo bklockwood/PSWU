@@ -789,7 +789,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         #Resultcode 2-success, 3-success with errors. 
         #Using -contains instead of -in for PS v2 compat
         if (2,3 -notcontains $DownloadResult.ResultCode) {
-            $hexresult = "0x" + '{0:x}' -f $($DownloadResult.ResultCode)
+            $hexresult = "0x" + ('{0:x}' -f $DownloadResult.ResultCode)
             $status = "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode) `r`n"
             $status += "See https://support.microsoft.com/en-us/kb/938205 and error $hexresult"
             Write-Log -EventID 28 -Source Install-Update -EntryType Error -Message $status
