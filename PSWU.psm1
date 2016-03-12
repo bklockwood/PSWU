@@ -1,109 +1,6 @@
 #requires -version 2.0
 #Set-StrictMode -Version 2.0
 
-function Install-AllUpdatesOld {
-<#
-.SYNOPSIS
-Installs all available, non-hidden updates updates (including optional ones),
-rebooting as necessary. You SHOULD NOT be running this function/cmdlet manually.
-Run the Install-AllUpdates.ps1 script instead.
-.PARAMETER ScriptName
-The script name. You SHOULD NOT be providing this parameter manually.
-Run Install-AllUpdates.ps1 which handles this for you.
-.PARAMETER ScriptPath
-The script path. You SHOULD NOT be providing this parameter manually.
-Run Install-AllUpdates.ps1 which handles this for you.
-.PARAMETER ScriptFullName
-The script full path. You SHOULD NOT be providing this parameter manually.
-Run Install-AllUpdates.ps1 which handles this for you.
-.EXAMPLE
-Install-AllUpdates 
-.NOTES 
-flowchart: http://i.imgur.com/NSV8AH2.png
-#>
-    
-    [CmdletBinding()]
-    Param(
-         [Parameter(Mandatory=$true,Position=0,
-        HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
-        [string]$DontRunThisCmdletManually,
-        [Parameter(Mandatory=$true,Position=1,
-        HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
-        [string]$ScriptName,
-        [Parameter(Mandatory=$true,Position=2,
-        HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
-        [string]$ScriptPath,
-        [Parameter(Mandatory=$true,Position=3,HelpMessage="Kill this with ctrl-c and run Install-AllUpdates.ps1")]
-        [string]$ScriptFullName
-    )
-
-    Begin{
-        If ($DontRunThisCmdletManually -NE "PermissionGranted") {
-            Write-Host -ForegroundColor Red "You SHOULD NOT be running this function/cmdlet manually.
-            Run the Install-AllUpdates.ps1 script instead."
-            break}
-    }
-    Process 
-    {
-        $Logfile = "$env:PUBLIC\Desktop\PSWU.log"
-        Write-Log $Logfile " -=-=-=-=-=-=-=-=-=-=-=-"
-        Write-Log $Logfile "PSWU system patcher is starting (as $env:username)."
-
-        Write-Log $Logfile "Starting PSWU function 'Install-AllUpdates'"
-        if (!(Test-AdminPrivs)) {
-            Write-Warning "You must elevate to Admin privs to download or install updates"
-            Write-Log $Logfile "You must elevate to Admin privs to download or install updates"
-            break 
-        }
-
-        if (Test-RebootNeeded) {
-            Write-Log $Logfile "Restart needed (for pending Windows Updates)."
-            if (!(CheckForScheduledTask "PSWU")) {ScheduleRerunTask "PSWU" $ScriptFullPath}
-            Write-Log $Logfile "Restarting in 15 seconds!"
-            Start-Sleep -Seconds 15
-            Restart-Computer -Force 
-            break #Without this, script will continue processing during the shutdown.
-        } else {
-            Write-Log $Logfile "No reboot needed."
-        }
-
-        Write-Log $Logfile "Checking for updates."
-        $ISearchResult = Get-UpdateList
-
-        if ($ISearchResult.ResultCode -eq 2) {
-            Write-Log $Logfile "Successfully retreived update list"
-            $ISearchResult | Hide-Update -KBID 2483139 #hide Language Packs
-            $NonHiddenUpdateCount = ($ISearchResult.Updates | Where-Object {$_.IsHidden -eq $false}).Count
-            #if ($ISearchResult.Updates.Count -gt 0) {
-            if ($NonHiddenUpdateCount -gt 0) {
-                Write-Log $Logfile "Non-hidden updates: $NonHiddenUpdateCount"
-                [string]$UpdateReport = Show-UpdateList -ISearchResult $ISearchResult
-                Write-Log $Logfile $UpdateReport  
-                Write-Log $Logfile "Downloading and installing $NonHiddenUpdateCount updates."
-                $Install = Install-Update -ISearchResult $ISearchResult -Verbose
-                Write-Log $Logfile "Done installing updates. Restarting script to check for more."
-                Install-AllUpdates -DontRunThisCmdletManually "PermissionGranted" `
-                    -ScriptName $ScriptName `
-                    -Scriptpath $ScriptPath `
-                    -ScriptFullName $ScriptFullPath `
-                    -Verbose
-            } else {
-                Write-Log $Logfile "Windows is up to date; script cleaning up."
-                #check for PSWU Scheduled Task and delete if found
-                #use schtasks for win7 compat
-                if (CheckForScheduledTask "PSWU") {
-                    Write-Log $Logfile "Found PSWU task; removing. "
-                    schtasks /delete /tn pswu /F
-                    }   
-                Write-Log $Logfile "Cleanup complete. Running as $env:username - script exiting."
-                Rename-Item -Path $Logfile -NewName "PSWU DONE.log" -Force
-                break
-            }
-        }
-    }
-    End{}
-}
-
 Function Install-AllUpdates {
 <#
 .SYNOPSIS
@@ -220,30 +117,6 @@ flowchart: http://i.imgur.com/NSV8AH2.png
     }
 }
 
-Function Write-LogOld {
-<#
-.SYNOPSIS
-Logs short statements, with timestamps, to file defined by $Logfile
-.PARAMETER Logfile
-The full path to the logfile.
-.PARAMETER Logstring
-The text string to log.
-.EXAMPLE
-Write-Log c:\logs\logfile.txt "This is a log entry"
-#>
-   Param 
-   (
-   [Parameter(Mandatory=$true,Position=0)][string]$Logfile,
-   [Parameter(Mandatory=$true,Position=1)][string]$LogString   
-   )
-
-   #dotNET datestamp formats http://goo.gl/YkkEXa and http://goo.gl/B5JhW
-   $Logtext = "$(get-date -Format yyyyMMdd-HH:mm:ss) $LogString"
-   Out-file -FilePath $Logfile -Append -NoClobber -InputObject $Logtext -Encoding ascii
-   #Write-Host intentional here! $Logtext must *not* go into pipeline.
-   Write-Host $Logtext
-}
-
 Function Write-Log {
 <#
 .SYNOPSIS
@@ -309,7 +182,9 @@ as found in Powershell Deep Dives, chapter 11
 http://goo.gl/JQQz0R for his original code.
 .NOTES
 There are no examples for this function; it is not meant to 
-be called by humans. 
+be called by humans.
+As of 2016/03/12, this function is not called by any other part of PSWU;
+it is kept around because *maybe* I will use it later. 
 #>
     #Param ([Parameter(Mandatory=$true,ValueFromPipeline=$true,Position=0)] $MyError)
 
@@ -387,48 +262,6 @@ Test-RebootNeeded -Computername AaronsPC
         if ($PFRORegkey.Property) {$NeedsReboot = $true}
         $NeedsReboot
     }
-}
-
-function ScheduleRerunTask ($TaskName, $ScriptPath) {
-<#
-.SYNOPSIS
-Creates a Scheduled Task that restarts this script after reboot.
-.PARAMETER TaskName
-A name for the task.
-.PARAMETER ScriptPath
-Full path to the script.
-.NOTES
-The *ScheduledTask* cmdlets are PS v3 and up;
-schtasks used purposely to preserve compat with v2 (win7, 2008r2).
-This function is likely to be removed soon. (Use New-PSTask instead!)
-.EXAMPLE
-ScheduleRerunTask RestartTask c:\myscript.ps1
-#>
-    #note the funky escaping because of http://goo.gl/SgSLrQ
-    [string]$TR = """$PSHome\powershell.exe "
-    $TR += " -ExecutionPolicy Unrestricted -File \`"$ScriptPath\`" "
-    [string]$sctask = "schtasks /create /RU system "
-    $sctask += "/SC onstart /TN $TaskName "
-    $sctask += "/RL HIGHEST /TR $TR"""
-    cmd /c $sctask
-}
-
-function CheckForScheduledTask ($TaskName) {
-<#
-.Synopsis
-Checks to see if the specified scheduled task exists.
-.PARAMETER TaskName
-Name of task to check for.
-.EXAMPLE
-TODO
-#>
-    $return = $true
-    #Don't need any error output from Powershell
-    $ErrorActionPreference = "SilentlyContinue"
-    $output = schtasks /query /tn $TaskName   
-    if ($LASTEXITCODE -ne 0) {$return = $false}
-    $ErrorActionPreference = "Continue"
-    $return
 }
 
 function Hide-Update {
@@ -1090,6 +923,3 @@ Get-LocalTime $dateobject
     $LocalTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($UTCTime, $TZ)
     Return $LocalTime
 }
-
-#function reloadt7 {remove-module pswu;import-module pswu; Install-RemotePSWU t7 -Verbose -Update}
-#function reloadt81 {remove-module pswu;import-module pswu; Install-RemotePSWU t81 -Verbose -Update}
