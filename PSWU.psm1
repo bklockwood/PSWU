@@ -149,8 +149,9 @@ flowchart: http://i.imgur.com/NSV8AH2.png
 
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified 
+        Compare-PSWU -Computername $Computername
         $status = "Install-AllUpdates calling New-PSTask. Computername: $Computername Command: $Command"
-        Write-Log -EventID 1 -Source Install-AllUpdates -EntryType Information -LogString $status
+        Write-Log -EventID 1 -Source Install-AllUpdates -EntryType Information -Message $status
         #TODO need errorchecking here. if the task can't be created, log an error and quit
         New-PSTask -Computername $Computername -TaskName "PSWU Install-AllUpdates (FromRemote)" -Command $Command |Invoke-PSTask
     } else {
@@ -159,25 +160,25 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         $RebootStatus = Test-RebootNeeded -Computername $Computername
         $status = "Starting locally with params: $boundparams `r`n"
         $status += "User= $env:username; Admin= $AdminStatus; NeedsReboot= $RebootStatus."
-        Write-Log -EventID 2 -Source Install-AllUpdates -EntryType Information -LogString $status    
+        Write-Log -EventID 2 -Source Install-AllUpdates -EntryType Information -Message $status    
 
         if ($AdminStatus -eq $false) {
             $status = "Exiting. PSWU is not elevated; cannot continue."
-            Write-Log -EventID 3 -Source Install-AllUpdates -EntryType Error -LogString $status
+            Write-Log -EventID 3 -Source Install-AllUpdates -EntryType Error -Message $status
             break
         }
 
         if ($RebootStatus -eq $true) {
             $status = "Restart needed. Creating startup task and rebooting."
-            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -Message $status
             New-PSTask -ComputerName $env:COMPUTERNAME -TaskName "PSWU Install-AllUpdates (AtBoot)" -Command $Command -RunAtBoot
 
             $status = "Restart commence NOW"
-            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -Message $status
             Restart-Computer -Force
             Start-Sleep -Seconds 10
             $status = "WTF (computer did not restart)"
-            Write-Log -EventID 5 -Source Install-AllUpdates -EntryType Error -LogString $status
+            Write-Log -EventID 5 -Source Install-AllUpdates -EntryType Error -Message $status
         } 
                
         $UpdateList = Get-UpdateList -SearchObject        
@@ -193,18 +194,18 @@ flowchart: http://i.imgur.com/NSV8AH2.png
                 $status += "$DoNotApplyCount ineligible updates (hidden or excluded by supplied params): `r`n $boundparams.`r`n" 
             }
             $status += "Calling: Install-Update -ISearchResult (updatelist) $boundparams"
-            Write-Log -EventID 6 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Write-Log -EventID 6 -Source Install-AllUpdates -EntryType Information -Message $status
             Install-Update -ISearchResult $UpdateList @PSBoundParameters
 
             $status = "Returning to start."
-            Write-Log -EventID 7 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Write-Log -EventID 7 -Source Install-AllUpdates -EntryType Information -Message $status
             Install-AllUpdates -Computername $Computername @PSBoundParams           
         } else {
             $status = "Exiting. No eligible updates to install.`r`n"
             if ($DoNotApplyCount -gt 0) {
                 $status += "$DoNotApplyCount ineligible updates (hidden, or excluded by params): `r`n $boundparams.`r`n" 
             }
-            Write-Log -EventID 8 -Source Install-AllUpdates -EntryType Information -LogString $status
+            Write-Log -EventID 8 -Source Install-AllUpdates -EntryType Information -Message $status
             $Scheduler = New-Object -ComObject Schedule.Service
             $Scheduler.Connect($ComputerName)
             if ($Scheduler.Connected) {
@@ -244,12 +245,30 @@ Write-Log c:\logs\logfile.txt "This is a log entry"
 }
 
 Function Write-Log {
+<#
+.SYNOPSIS
+Internal non-advanced function for writing to evtnlog named "PSWU".
+If the log does not exist, it will be created.
+.PARAMETER EventID
+A numeric evnt ID.
+.PARAMETER EntryType
+An event type. Must be "Information", "Error", or "Warning".
+If this switch parameter is given, Driver updates (from WU) will be installed in
+addition to software updates.
+.PARAMETER Source
+An event Source. The name of the function that emits the event.
+.PARAMETER Message
+.EXAMPLE
+Write-Log -EventID 21 -EntryType Information -Source Hide-Update -Message $MyMessageString
+.NOTES 
+flowchart: http://i.imgur.com/NSV8AH2.png
+#>
     Param (
        [Parameter(Mandatory=$true,Position=0)][string]$EventID,
        [Parameter(Mandatory=$true,Position=1)]
         [ValidateSet("Information","Error","Warning")][string]$EntryType = "Information",
        [Parameter(Mandatory=$true,Position=2)][string]$Source = "PSWU",
-       [Parameter(Mandatory=$true,Position=3)][string]$LogString
+       [Parameter(Mandatory=$true,Position=3)][string]$Message
     )        
     
     #Try to write to eventlog named "PSWU"; if that eventlog is not present, create it and try again.
@@ -259,11 +278,11 @@ Function Write-Log {
     while (-not $success) { 
         try {
             Write-EventLog -LogName PSWU -Source $source -EventId $EventID -EntryType $EntryType `
-                -Message $LogString -ErrorAction Stop
+                -Message $Message -ErrorAction Stop
             switch ($EntryType) {
-                "Information" {Write-Verbose $LogString}
-                "Error" {Write-Error $LogString}
-                "Warning" {Write-Warning $LogString}
+                "Information" {Write-Verbose $Message}
+                "Error" {Write-Error $Message}
+                "Warning" {Write-Warning $Message}
                 default {Write-Error "Bad EntryType parameter passed to Write-Log: $EntryType"}
             }
             $success = $true
@@ -349,7 +368,7 @@ Test-RebootNeeded -Computername AaronsPC
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified
         #output variable in scriptblock because #26 https://github.com/bklockwood/PSWU/issues/26 
-        invoke-Command -ComputerName $Computername -ScriptBlock { import-module PSWU; $output = Test-RebootNeeded; $output } 
+        Invoke-Command -ComputerName $Computername -ScriptBlock { import-module PSWU; $output = Test-RebootNeeded; $output } 
     } else {
         [bool]$NeedsReboot = $false
         <#
@@ -462,6 +481,7 @@ function Hide-Update {
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified
         #NOTE: reason for this scheduled task explained at "Hateful Note" in Install-Update
+        Compare-PSWU -Computername $Computername
         $KBID = $KBID -Join ","
         if ($UnHide) {
             $command = "&import-module pswu;Hide-Update -UnHide -KBID $KBID"
@@ -507,6 +527,7 @@ get-updatehistory t7
     )
 
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
+        Compare-PSWU -Computername $Computername  
         Invoke-Command -ComputerName $Computername -scriptblock {import-module PSWU; $output = Get-UpdateHistory; $output}
     } else {
         $Searcher = New-Object -ComObject Microsoft.Update.Searcher
@@ -596,6 +617,7 @@ Shows that there are 5 updates available.
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #The following IF clause looks silly, but I could not find a cleaner way to send a switch param to remote PC
         #try this at some point: http://goo.gl/R0oi0F
+        Compare-PSWU -Computername $Computername  
         Write-Verbose "Invoking Get-UpdateList on $Computername"
         if ($SearchObject) {
             $sb = {import-module PSWU; $output = Get-UpdateList -Computername . -Criteria $Using:Criteria -SearchObject; $output}
@@ -611,7 +633,7 @@ Shows that there are 5 updates available.
         #$ISearchResult = $Searcher.Search($Criteria)
         if ($SearchObject) {$ISearchResult} else {$ISearchResult.Updates}
         $status = "$($ISearchResult.Updates.Count) update(s) found in $SecondsSpent seconds." 
-        Write-Log -EventID 52 -Source Get-UpdateList -EntryType Information -LogString $status
+        Write-Log -EventID 52 -Source Get-UpdateList -EntryType Information -Message $status
     }    
 }
 
@@ -659,19 +681,20 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
     [bool]$rebootstatus = Test-RebootNeeded -Computername $Computername
     if ($rebootstatus -eq $true) {
         $status ="$Computername pending reboot status is: .$rebootstatus. - please reboot before applying further updates."
-        Write-Log -EventID 20 -Source Install-Update -EntryType Error -LogString $status
+        Write-Log -EventID 20 -Source Install-Update -EntryType Error -Message $status
         break
     }
     
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
-        #this clause runs when a remote machine has been specified        
+        #this clause runs when a remote machine has been specified
+        Compare-PSWU -Computername $Computername    
         if ($OneByOne) {
             $command = "&import-module pswu;Install-Update -OneByOne"
         } else {
             $command = "&import-module pswu;Install-Update"
         }
         $status = "Install-Update is sending an Install-Update task to $Computername"
-        Write-Log -EventID 21 -Source Install-Update -EntryType Information -LogString $status
+        Write-Log -EventID 21 -Source Install-Update -EntryType Information -Message $status
         if ($Reboot) {
             New-PSTask -Computername $Computername -TaskName "PSWU Install-Update" -Command $command | Invoke-PSTask -Reboot -Follow
         } else {
@@ -701,7 +724,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         $infostring += "Parameters given: $boundparams `r`n"
         If ((Test-AdminPrivs) -ne $true) {
             $status = "Admin privs required. Exiting. `r`n $infostring"
-            Write-Log -EventID 22 -Source Install-Update -EntryType Error -LogString $status
+            Write-Log -EventID 22 -Source Install-Update -EntryType Error -Message $status
             break
         }
 
@@ -710,12 +733,12 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         }
         if ($ISearchResult.pstypenames -notcontains 'System.__ComObject#{d40cff62-e08c-4498-941a-01e25f0fd33c}') {
             $status = "$ISearchResult is not an ISearchResult object (http://goo.gl/pvnUSM). Exiting. `r`n $infostring"
-            Write-Log -EventID 24 -Source Install-Update -EntryType Error -LogString $status
+            Write-Log -EventID 24 -Source Install-Update -EntryType Error -Message $status
             break
         }
         if ($($ISearchResult.Updates.Count) -lt 1) {
             $status = "Found no available updates. Exiting. `r `n $infostring"
-            Write-Log -EventID 25 -Source Install-Update -EntryType Information -LogString $status
+            Write-Log -EventID 25 -Source Install-Update -EntryType Information -Message $status
             break
         }
 
@@ -748,7 +771,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
             $status = "No updates eligible for install, of $($ISearchResult.Updates.Count) found.`r`n"
             $status += "$UpdateList `r`n"
             $status += "Exiting. `r`n $infostring"
-            Write-Log -EventID 26 -Source Install-Update -EntryType Information -LogString $status
+            Write-Log -EventID 26 -Source Install-Update -EntryType Information -Message $status
             break
         }
         
@@ -758,7 +781,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         }
         $status += "Proceeding to download and install:`r`n"
         $status += "$UpdateList `r`n"
-        Write-Log -EventID 27 -Source Install-Update -EntryType Information -LogString $status
+        Write-Log -EventID 27 -Source Install-Update -EntryType Information -Message $status
         #IUpdateDownloader, https://goo.gl/hPK49j
         $Downloader = New-Object -ComObject Microsoft.Update.Downloader
         $Downloader.Updates = $DesiredUpdates
@@ -766,13 +789,15 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
         #Resultcode 2-success, 3-success with errors. 
         #Using -contains instead of -in for PS v2 compat
         if (2,3 -notcontains $DownloadResult.ResultCode) {
-            $status = "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode)"
-            Write-Log -EventID 28 -Source Install-Update -EntryType Error -LogString $status
+            $hexresult = "0x" + '{0:x}' -f $($DownloadResult.ResultCode)
+            $status = "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode) `r`n"
+            $status += "See https://support.microsoft.com/en-us/kb/938205 and error $hexresult"
+            Write-Log -EventID 28 -Source Install-Update -EntryType Error -Message $status
         } else {
             if ($DownloadResult.ResultCode -eq 3) {$status = "Downloaded with errors; "}
             if ($DownloadResult.ResultCode -eq 2) {$status = "Downloaded successfully; "}
             $status += "beginning install of $($DesiredUpdates.Count) updates"
-            Write-Log -EventID 29 -Source Install-Update -EntryType Information -LogString $status
+            Write-Log -EventID 29 -Source Install-Update -EntryType Information -Message $status
             $Installer = New-Object -ComObject Microsoft.Update.Installer
             $Installer.Updates = $DesiredUpdates
             $InstallResult = $Installer.Install()
@@ -780,27 +805,29 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
                 2 {$status = "Installed updates successfully."}
                 3 {$status = "Installed updates with errors."}
                 default {
+                    $hexresult = "0x" + '{0:x}' -f $($InstallResult.ResultCode)
                     $status = "Installer error $($InstallResult.HResult), resultcode $($InstallResult.ResultCode)"
-                    Write-Log -EventID 30 -Source Install-Update -EntryType Error -LogString $status
+                    $status += "See https://support.microsoft.com/en-us/kb/938205 and error $hexresult"
+                    Write-Log -EventID 30 -Source Install-Update -EntryType Error -Message $status
                 }
             }
-            Write-Log -EventID 31 -Source Install-Update -EntryType Information -LogString $status
+            Write-Log -EventID 31 -Source Install-Update -EntryType Information -Message $status
             if ((Test-RebootNeeded) -eq $true) {
                 if ($Reboot) {
-                    Write-Log -EventID 32 -Source Install-Update -EntryType Warning -LogString "Updates installed; rebooting."
+                    Write-Log -EventID 32 -Source Install-Update -EntryType Warning -Message "Updates installed; rebooting."
                     Restart-Computer -force
                 } else {
-                    Write-Log -EventID 33 -Source Install-Update -EntryType Warning -LogString "Updates installed; please reboot soon."
+                    Write-Log -EventID 33 -Source Install-Update -EntryType Warning -Message "Updates installed; please reboot soon."
                 }
             } else {
-                Write-Log -EventID 34 -Source Install-Update -EntryType Information -LogString "Updates installed; reboot NOT needed."
+                Write-Log -EventID 34 -Source Install-Update -EntryType Information -Message "Updates installed; reboot NOT needed."
             }
         }
         
     }
 }
 
-function Install-RemotePSWU {
+function Install-PSWU {
 <#
 .SYNOPSIS
 Installs PSWU to remote computer.
@@ -814,18 +841,17 @@ Follow the rules at https://goo.gl/OjL8Nt
 Note that Win7 and below do not have C:\Program Files\WindowsPowerShell\Modules
 in $env:PSModulePath. I read the rules as saying it is OK to add that path.
 .EXAMPLE
-Install-RemotePSWU CathyPC -Update
+Install-PSWU CathyPC -Update
 Installs or updates the PSWU module on the system named CathyPC.
 #>
 
     [CmdletBinding()]
     Param (
         [parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$Computername,
-        [parameter(Position=1)][switch]$Update
-        
+        [parameter(Position=1)][switch]$Update        
     )
 
-    Write-Verbose "Beginning Install-RemotePSWU"
+    Write-Verbose "Beginning Install-PSWU"
     #need a mechanism to remotely check whether module is usable
     #construct a UNC filepath to where the remote PSWU installation should be
     $RemoteSystemDrive = Invoke-Command -ComputerName $Computername {$env:SystemDrive}    
@@ -860,6 +886,47 @@ Installs or updates the PSWU module on the system named CathyPC.
         Write-Verbose "PSWU installed/updated on $Computername"     
     }
 
+}
+
+function Compare-PSWU {
+<#
+.SYNOPSIS
+Checks a remote computer to see if it has the same PSWU version installed locally. 
+If PSWU is not present on the remote PC, it will be installed.
+If PSWU on remote PC is a lesser version than local, the remote PSWU will be updated.
+.PARAMETER Computername
+The target computer. PSWU will be installed or updated on this computer.
+.EXAMPLE
+Compare-PSWU -Computername FrankenPC
+TRUE
+#>
+
+    Param ([parameter(Mandatory=$true, ValueFromPipeline=$true,Position=0)][string]$Computername)
+
+    try {
+        $remotepswu = "SAME"
+        $remotecommand = {import-module PSWU; (Get-Module PSWU).Version.ToString()}
+        $remoteversion = Invoke-Command -ComputerName $Computername -ScriptBlock $remotecommand -HideComputerName -ErrorAction Stop
+        $localversion = (Get-Module PSWU).Version.ToString()
+        if ($localversion -gt $remoteversion) {$remotepswu = "OLDER"} 
+        if ($localversion -lt $remoteversion) {$remotepswu = "NEWER"} 
+    } catch {
+        if ($($_.FullyQualifiedErrorId) -eq "NetworkPathNotFound,PSSessionStateBroken") {
+            $remotepswu = "CANNOTCONNECT"
+        } else {
+            $remotepswu = "NOTPRESENT"
+        }
+    }
+
+    switch ($remotepswu) {
+        "SAME" {}
+        "NOTPRESENT" {Install-PSWU -Computername $Computername}
+        "OLDER" {Install-PSWU -Computername $Computername -update}
+        "NEWER" {
+            Write-Error "Exiting. $Computername has PSWU v$remoteversion which is newer than local version $localversion!"}        
+        "CANNOTCONNECT" {Write-Error "Exiting. Cannot Connect to $Computername."}
+        default {Write-Error "Exiting. WTF?"}
+    }
 }
 
 function New-PSTask {
@@ -918,7 +985,7 @@ be rebooted.
         $TaskFolder = $Scheduler.GetFolder("\")
         $CreatedTask = $TaskFolder.RegisterTaskDefinition($TaskName, $Task, 6, "SYSTEM", $Null, 3)
         $status = "Task $TaskName was created on $ComputerName"
-        Write-Log -EventID 61 -Source New-PSTask -EntryType Information -LogString $status
+        Write-Log -EventID 61 -Source New-PSTask -EntryType Information -Message $status
 
         #Output object for consumption by Invoke-Task
         $Properties = @{"ComputerName" = $ComputerName;
@@ -929,7 +996,7 @@ be rebooted.
     } else {
         $status = "Could not connect to Task Scheduler on computer $ComputerName `r`n"
         $status += "Params: `r`n $PSBoundParameters"
-        Write-Log -EventID 62 -Source New-PSTask -EntryType Error -LogString $status
+        Write-Log -EventID 62 -Source New-PSTask -EntryType Error -Message $status
     }
 }
 
