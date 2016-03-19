@@ -642,6 +642,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
                     $status = "Installer error $($InstallResult.HResult), resultcode $($InstallResult.ResultCode)"
                     $status += "See https://support.microsoft.com/en-us/kb/938205 and error $hexresult"
                     Write-Log -EventID 30 -Source Install-Update -EntryType Error -Message $status
+                    return
                 }
             }
             Write-Log -EventID 31 -Source Install-Update -EntryType Information -Message $status
