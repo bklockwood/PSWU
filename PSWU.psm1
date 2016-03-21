@@ -86,12 +86,6 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         $UpdatesToInstall = $($UpdateList.Updates.Count) - $DoNotApplyCount
             
         if ($UpdatesToInstall -gt 0) {
-            $status = "$UpdatesToInstall update(s) will be installed. `r`n"
-            if ($DoNotApplyCount -gt 0) {
-                $status += "$DoNotApplyCount ineligible updates (hidden or excluded by supplied params): `r`n $boundparams.`r`n" 
-            }
-            $status += "Calling: Install-Update -ISearchResult (updatelist) $boundparams"
-            Write-Log -EventID 6 -Source Install-AllUpdates -EntryType Information -Message $status
             Install-Update -ISearchResult $UpdateList @PSBoundParameters
 
             $status = "Returning to start."
@@ -574,11 +568,11 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
             Write-Log -EventID 25 -Source Install-Update -EntryType Information -Message $status
             break
         }
-
-        $UpdateList = "`r`n"        
-        $DesiredUpdates = New-Object -ComObject Microsoft.Update.UpdateColl 
-        $eligiblecounter = 0
-        $excludedcounter = 0
+     
+        $EligibleUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
+        $ExcludedUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
+        $EligibleUpdateList = ""
+        $ExcludedUpdateList = ""
         foreach ($u in $ISearchResult.Updates) {
             [bool]$ApplyUpdate = $true
             #"BrowseOnly" is seen in GUI as "Optional"; Don't apply if SkipOptional param is present    
@@ -586,53 +580,54 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
             #Do not apply update if hidden
             if ($($u.IsHidden) -eq $true) {$ApplyUpdate = $false}
             if ($ApplyUpdate -eq $true) { 
-                $eligiblecounter++
                 if (!$($u.EulaAccepted)) {$u.AcceptEula()}
-                $DesiredUpdates.Add($u) |out-null 
-                $UpdateList += "$($u.Title)`r`n"
-            } else {
-                $excludedcounter ++
-            }          
-            if ($OneByOne) { 
+                $EligibleUpdates.Add($u) |out-null 
+                $EligibleUpdateList += "$($u.KBArticleIDs)`t$($u.Title)`r`n"
+                if ($OneByOne) { 
                 #Used for debugging. One update at a time.
                 $UpdateList += "`r`nDebugging flag OneByOne was set.`r`n"
-                if ($counter -gt 0) {break}
-            }      
+                if ($EligibleUpdates.Count -gt 1) {break}
+            }  
+            } else {
+                $ExcludedUpdates.Add($u) |out-null 
+                $ExcludedUpdateList += "$($u.KBArticleIDs)`t$($u.Title)`r`n"
+            }          
+                
         }
 
-        if ($DesiredUpdates.Count -lt 1) {
+        if ($EligibleUpdates.Count -lt 1) {
             $status = "No updates eligible for install, of $($ISearchResult.Updates.Count) found.`r`n"
-            $status += "$UpdateList `r`n"
-            $status += "Exiting. `r`n $infostring"
-            Write-Log -EventID 26 -Source Install-Update -EntryType Information -Message $status
+            $status += "Ineligible updates: `r`n$ExcludedUpdateList"
+            $status += "`r`nExiting. `r`n $infostring"
+            Write-Log -EventID 22 -Source Install-Update -EntryType Information -Message $status
             break
         }
         
-        $status = "$($DesiredUpdates.Count) eligible updates found. `r`n"
-        if ($excludedcounter -gt 0 ) {
-            $status += "$excludedcounter updates excluded (hidden or excluded by supplied params) `r`n $boundparams `r`n"
+        $status = "Installing $($EligibleUpdates.Count) eligible updates; skipping $($ExcludedUpdates.Count) ineligible ones. `r`n"
+        $status += "`r`nEligible updates to be downloaded and installed:`r`n$EligibleUpdateList`r`n"
+        if ($($ExcludedUpdates.Count) -gt 0 ) {
+            $status += "Inelegible updates that will not be installed:`r`n$ExcludedUpdateList`r`n"
         }
-        $status += "Proceeding to download and install:`r`n"
-        $status += "$UpdateList `r`n"
+        $status += $infostring
         Write-Log -EventID 27 -Source Install-Update -EntryType Information -Message $status
         #IUpdateDownloader, https://goo.gl/hPK49j
         $Downloader = New-Object -ComObject Microsoft.Update.Downloader
-        $Downloader.Updates = $DesiredUpdates
+        $Downloader.Updates = $EligibleUpdates
         $DownloadResult = $Downloader.Download()
         #Resultcode 2-success, 3-success with errors. 
         #Using -contains instead of -in for PS v2 compat
         if (2,3 -notcontains $DownloadResult.ResultCode) {
             $hexresult = "0x" + ('{0:x}' -f $($DownloadResult.ResultCode))
             $status = "Downloader error HResult $($DownloadResult.HResult), resultcode $($DownloadResult.ResultCode) `r`n"
-            $status += "See https://support.microsoft.com/en-us/kb/938205 and error $hexresult"
-            Write-Log -EventID 28 -Source Install-Update -EntryType Error -Message $status
+            $status += "See https://support.microsoft.com/en-us/kb/938205 and error $hexresult `r`n"
+            Write-Log -EventID 23 -Source Install-Update -EntryType Error -Message $status
         } else {
             if ($DownloadResult.ResultCode -eq 3) {$status = "Downloaded with errors; "}
             if ($DownloadResult.ResultCode -eq 2) {$status = "Downloaded successfully; "}
-            $status += "beginning install of $($DesiredUpdates.Count) updates"
-            Write-Log -EventID 29 -Source Install-Update -EntryType Information -Message $status
+            $status += "beginning install of $($EligibleUpdates.Count) updates"
+            Write-Log -EventID 24 -Source Install-Update -EntryType Information -Message $status
             $Installer = New-Object -ComObject Microsoft.Update.Installer
-            $Installer.Updates = $DesiredUpdates
+            $Installer.Updates = $EligibleUpdates
             $InstallResult = $Installer.Install()
             switch ($InstallResult.ResultCode) {
                 2 {$status = "Installed updates successfully."}
@@ -645,16 +640,16 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
                     return
                 }
             }
-            Write-Log -EventID 31 -Source Install-Update -EntryType Information -Message $status
+            
             if ((Test-RebootNeeded) -eq $true) {
                 if ($Reboot) {
-                    Write-Log -EventID 32 -Source Install-Update -EntryType Warning -Message "Updates installed; rebooting."
+                    Write-Log -EventID 25 -Source Install-Update -EntryType Information -Message "Updates installed; rebooting."
                     Restart-Computer -force
                 } else {
-                    Write-Log -EventID 33 -Source Install-Update -EntryType Warning -Message "Updates installed; please reboot soon."
+                    Write-Log -EventID 25 -Source Install-Update -EntryType Warning -Message "Updates installed; please reboot soon."
                 }
             } else {
-                Write-Log -EventID 34 -Source Install-Update -EntryType Information -Message "Updates installed; reboot NOT needed."
+                Write-Log -EventID 25 -Source Install-Update -EntryType Information -Message "Updates installed; reboot NOT needed."
             }
         }
         
