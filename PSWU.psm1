@@ -20,7 +20,7 @@ Install-AllUpdates
 flowchart: http://i.imgur.com/NSV8AH2.png
 #>
     Param (
-       [Parameter(ValueFromPipelineByPropertyName=$true,Position=0)][string]$Computername = ".",
+       [Parameter(ValueFromPipelineByPropertyName=$true,Position=0)][string]$Computername = $env:COMPUTERNAME,
        [Parameter(ValueFromPipelineByPropertyName=$true,Position=1)][switch]$SkipOptional,
        [Parameter(ValueFromPipelineByPropertyName=$true,Position=2)][switch]$Driver,
        [Parameter(ValueFromPipelineByPropertyName=$true,Position=3)][switch]$OnlyDriver   
@@ -43,7 +43,8 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         #TODO need errorchecking here. if the task can't be created, log an error and quit
         New-PSTask -Computername $Computername -TaskName "PSWU Install-AllUpdates (FromRemote)" -Command $Command |Invoke-PSTask
     } else {
-        #this clause runs when the script has been invoked targeting local machine        
+        #this clause runs when the script has been invoked targeting local machine 
+        Stop-RestartLoop   
         $AdminStatus = Test-AdminPrivs
         $RebootStatus = Test-RebootNeeded -Computername $Computername
         $status = "Starting locally with params: $boundparams `r`n"
@@ -90,17 +91,8 @@ flowchart: http://i.imgur.com/NSV8AH2.png
             if ($DoNotApplyCount -gt 0) {
                 $status += "$DoNotApplyCount ineligible updates (hidden, or excluded by params): `r`n $boundparams.`r`n" 
             }
-            Write-Log -EventID 8 -Source Install-AllUpdates -EntryType Information -Message $status
-            $Scheduler = New-Object -ComObject Schedule.Service
-            $Scheduler.Connect($ComputerName)
-            if ($Scheduler.Connected) {
-                $TaskFolder = $Scheduler.GetFolder("\")
-                $Tasks = $TaskFolder.GetTasks(0)
-                $Tasks.Count
-                foreach ($task in $Tasks) {
-                    if ($($task.name).StartsWith("PSWU")) {$TaskFolder.DeleteTask($task.name,0)}
-                }
-            }            
+            Write-Log -EventID 8 -Source Install-AllUpdates -EntryType Information -Message $status 
+            Remove-PSWUTasks                      
         }        
     }
 }
@@ -224,7 +216,7 @@ Test-RebootNeeded -Computername AaronsPC
 #>
     [CmdletBinding()]
     [OutputType([bool])]
-    Param([Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".")
+    Param([Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = $env:COMPUTERNAME)
 
     Write-Verbose "Starting '$($MyInvocation.Line)'."
 
@@ -293,7 +285,7 @@ function Hide-Update {
     [CmdletBinding()]
     Param
     (
-        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".",
+        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = $env:COMPUTERNAME,
         [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$false,Position=1)][string[]]$KBID,
         [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$false,Position=2)][switch]$UnHide,
         [Parameter(Mandatory=$false,ValueFromPipeline=$true,Position=3)]$ISearchResult
@@ -344,7 +336,7 @@ get-updatehistory t7
 #>
     [CmdletBinding()]
     Param (
-        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = "."
+        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = $env:COMPUTERNAME
     )
 
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
@@ -430,7 +422,7 @@ Shows that there are 5 updates available.
 
     [CmdletBinding()]
     Param (
-        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = ".",
+        [Parameter(ValueFromPipeline=$true, Position=0)] [string]$Computername = $env:COMPUTERNAME,
         [Parameter(ValueFromPipeline=$false, Position=1)] [string]$Criteria = "IsInstalled=0 and Type='Software'",
         [Parameter(Position=2)] [switch]$SearchObject
     )
@@ -485,7 +477,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
 
     [CmdletBinding()]
     Param (
-        [parameter(Position=0)][string]$Computername = ".",        
+        [parameter(Position=0)][string]$Computername = $env:COMPUTERNAME,        
         [parameter(Position=1)][switch]$SkipOptional,
         [parameter(Position=2)][switch]$Reboot,
         [parameter(Position=3)]$ISearchResult,
@@ -950,5 +942,59 @@ Convert-ParamHashToString $PSBoundParameters
         }
     }
     $outstring
+}
 
+function Stop-RestartLoop  {
+<#
+.SYNOPSIS
+If the script has caused more than $x restarts in the past $y minutes, something is amiss.
+So log an error and stop the script!
+.PARAMETER Restarts
+Choose a number. If there have been *more than* this many restarts within the last
+$minutes minutes, an error will be logged and the script will halt.
+.PARAMETER Minutes
+Number of minutes into the past to look for restart events.
+.EXAMPLE
+Stop-RestartLoop -Restarts 3 -Minutes 10
+#>
+
+    param (
+        [parameter(Position=0)]$Restarts = 3,        
+        [parameter(Position=1)]$Minutes = 10 
+    )
+
+    $SinceDate = (Get-Date).AddMinutes($Minutes)
+    $Result = Get-EventLog -LogName pswu -After $Minutes -InstanceId 4 -ErrorAction SilentlyContinue
+    if ($($Result.Count) -gt $Restarts) {
+        $Status = "Restart loop detected. Exiting.`r`n"
+        $Status += "There have been $($Result.Count) restarts in the last $Minutes minutes."
+        Write-Log -EventID 99 -EntryType Error -Source PSWU -Message $Status
+        Remove-PSWUTasks
+        Start-Sleep -Seconds 15
+        break
+    }
+}
+
+function Remove-PSWUTasks {
+<#
+.SYNOPSIS
+Removes all PSWU tasks from Task Scheduler.
+.PARAMETER Computername
+The computername to remove PSWU tasks from.
+.EXAMPLE
+Remove-PSWUTasks -Computername JoesPC
+#>
+
+    param ( [parameter(Position=0)]$Computername = $env:COMPUTERNAME )
+
+    $Scheduler = New-Object -ComObject Schedule.Service
+    $Scheduler.Connect($ComputerName)
+    if ($Scheduler.Connected) {
+        $TaskFolder = $Scheduler.GetFolder("\")
+        $Tasks = $TaskFolder.GetTasks(0)
+        $Tasks.Count
+        foreach ($task in $Tasks) {
+            if ($($task.name).StartsWith("PSWU")) {$TaskFolder.DeleteTask($task.name,0)}
+        }
+    } 
 }
