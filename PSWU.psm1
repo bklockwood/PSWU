@@ -32,17 +32,8 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         break
     }
 
-    #Translate $PSBoundParameters hashtable into a string that can be passed to New-PSTask
-    $boundparams = ""
-    foreach ($key in $PSBoundParameters.Keys) {
-        switch ($PSBoundParameters.$key) {
-            $false {} #don't include switch params that evaluate false
-            $true {$boundparams += "-$key "} #do include switch params that are true, no need for the value
-            default {$boundparams += "-$key $($PSBoundParameters.$key) "} #include both param name and value for other param types
-        }
-    }
-
-    $Command = "&import-module pswu;Install-AllUpdates $boundparams"
+    [string]$boundparams = Convert-ParamDictToString $PSBoundParameters
+    [string]$Command = "&import-module pswu;Install-AllUpdates $boundparams"
 
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
         #this clause runs when a remote machine has been specified 
@@ -56,6 +47,7 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         $AdminStatus = Test-AdminPrivs
         $RebootStatus = Test-RebootNeeded -Computername $Computername
         $status = "Starting locally with params: $boundparams `r`n"
+        $status += "Current conditions: `r`n"
         $status += "User= $env:username; Admin= $AdminStatus; NeedsReboot= $RebootStatus."
         Write-Log -EventID 2 -Source Install-AllUpdates -EntryType Information -Message $status    
 
@@ -88,11 +80,13 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         if ($UpdatesToInstall -gt 0) {
             Install-Update -ISearchResult $UpdateList @PSBoundParameters
 
-            $status = "Returning to start."
+            $status = "Returning to start.`r`n"
+            $status += "Sending params: $boundparams"
             Write-Log -EventID 7 -Source Install-AllUpdates -EntryType Information -Message $status
-            Install-AllUpdates -Computername $Computername @PSBoundParams           
+            #Install-AllUpdates -Computername $Computername @PSBoundParameters 
+            Install-AllUpdates @PSBoundParameters     
         } else {
-            $status = "Exiting. No eligible updates to install.`r`n"
+            $status = "Removing all PSWU tasks and exiting. No eligible updates found.`r`n"
             if ($DoNotApplyCount -gt 0) {
                 $status += "$DoNotApplyCount ineligible updates (hidden, or excluded by params): `r`n $boundparams.`r`n" 
             }
@@ -156,7 +150,7 @@ flowchart: http://i.imgur.com/NSV8AH2.png
         } catch {
             $sources = "Test-AdminPrivs","Test-RebootNeeded","Hide-Update","Install-AllUpdates",
                 "Get-UpdateHistory","Get-UpdateList","Install-Update","Install-RemotePSWU",
-                "New-PSTask","Invoke-PSTask","Get-Localtime","PSWU"
+                "New-PSTask","Invoke-PSTask","Convert-UTCtoLocal","PSWU"
             New-EventLog -LogName PSWU -Source $sources -ErrorAction SilentlyContinue
         }
 
@@ -375,7 +369,7 @@ get-updatehistory t7
                     4 {$resultcode = "Fail"}
                     5 {$resultcode = "Abort"}
                 }
-                Write-Output "$(Get-LocalTime $($u.Date)), $operation, $resultcode, $($u.Title)"
+                Write-Output "$(Convert-UTCtoLocal $($u.Date)), $operation, $resultcode, $($u.Title)"
                 #TODO: make a nice object and a PSWUformat for this
             }
         } else {
@@ -568,29 +562,41 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
             Write-Log -EventID 25 -Source Install-Update -EntryType Information -Message $status
             break
         }
-     
+        
+        # Iterate through available updates, sorting into two updatecollection objects: 
+        # 1) the ones we want to install (Eligible) and 2) the ones we DO NOT want to install (Excluded)
+        # Make a text list corresponing to each collection (used in event logs).
+
         $EligibleUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
         $ExcludedUpdates = New-Object -ComObject Microsoft.Update.UpdateColl
         $EligibleUpdateList = ""
         $ExcludedUpdateList = ""
+        
         foreach ($u in $ISearchResult.Updates) {
             [bool]$ApplyUpdate = $true
+            [string]$Reason = "" #Reason for ineligibility
+            if ($($u.IsHidden) -eq $true) {
+                $ApplyUpdate = $false
+                $Reason = "HIDDEN "
+            }
             #"BrowseOnly" is seen in GUI as "Optional"; Don't apply if SkipOptional param is present    
-            if (($SkipOptional -eq $true) -and ($($u.BrowseOnly) -eq $true)) {$ApplyUpdate = $false}
-            #Do not apply update if hidden
-            if ($($u.IsHidden) -eq $true) {$ApplyUpdate = $false}
+            if (($SkipOptional -eq $true) -and ($($u.BrowseOnly) -eq $true)) {
+                $ApplyUpdate = $false
+                $Reason = "OPTIONAL"
+            }
+            
             if ($ApplyUpdate -eq $true) { 
                 if (!$($u.EulaAccepted)) {$u.AcceptEula()}
                 $EligibleUpdates.Add($u) |out-null 
                 $EligibleUpdateList += "$($u.KBArticleIDs)`t$($u.Title)`r`n"
                 if ($OneByOne) { 
-                #Used for debugging. One update at a time.
-                $UpdateList += "`r`nDebugging flag OneByOne was set.`r`n"
-                if ($EligibleUpdates.Count -gt 1) {break}
-            }  
+                    #Used for debugging. One update at a time.
+                    $UpdateList += "`r`nDebugging flag OneByOne was set.`r`n"
+                    if ($EligibleUpdates.Count -gt 1) {break}
+                }  
             } else {
                 $ExcludedUpdates.Add($u) |out-null 
-                $ExcludedUpdateList += "$($u.KBArticleIDs)`t$($u.Title)`r`n"
+                $ExcludedUpdateList += "$($u.KBArticleIDs)`t$($u.Title)`t$Reason`r`n"
             }          
                 
         }
@@ -813,7 +819,8 @@ be rebooted.
         #Taskfolder object, https://goo.gl/AWZM9j
         $TaskFolder = $Scheduler.GetFolder("\")
         $CreatedTask = $TaskFolder.RegisterTaskDefinition($TaskName, $Task, 6, "SYSTEM", $Null, 3)
-        $status = "Task $TaskName was created on $ComputerName"
+        $status = "Task $TaskName was created on $ComputerName`r`n"
+        $status += "Command: $Command"
         Write-Log -EventID 61 -Source New-PSTask -EntryType Information -Message $status
 
         #Output object for consumption by Invoke-Task
@@ -902,7 +909,7 @@ Function Invoke-PSTask {
     }
 }
 
-Function Get-LocalTime($UTCTime) {
+Function Convert-UTCtoLocal($UTCTime) {
 <#
 .SYNOPSIS
 Translates a UTC date to one appropriate to the local timezone.
@@ -911,11 +918,37 @@ The UTC date object which needs to be read as local time.
 .NOTES
 Thanks Tao Yang: http://goo.gl/R0w1Fk
 .EXAMPLE
-Get-LocalTime $dateobject
+Convert-UTCtoLocal $dateobject
 #>
 
     $strCurrentTimeZone = (Get-WmiObject win32_timezone).StandardName
     $TZ = [System.TimeZoneInfo]::FindSystemTimeZoneById($strCurrentTimeZone)
     $LocalTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($UTCTime, $TZ)
     Return $LocalTime
+}
+
+Function Convert-ParamDictToString ($boundparams) {
+<#
+.SYNOPSIS
+Converts a parameter dictionary ($PSBoundParameters) to a string in parameter format.
+.PARAMETER boundparams
+You'll pretty much always use $PSBoundParameters
+.NOTES
+
+.EXAMPLE
+Convert-ParamHashToString $PSBoundParameters
+#>
+    if ($boundparams.GetType().Name -ne "PSBoundParametersDictionary") {
+        throw "Convert-ParamToString requires a Hashtable."
+    }
+    $outstring = ""
+    foreach ($key in $boundparams.Keys) {
+        switch ($boundparams.$key) {
+            $false {} #don't include switch params that evaluate false
+            $true {$outstring += "-$key "} #do include switch params that are true, no need for the value
+            default {$outstring += "-$key $($boundparams.$key) "} #include both param name and value for other param types
+        }
+    }
+    $outstring
+
 }
