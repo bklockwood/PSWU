@@ -64,11 +64,11 @@ flowchart: http://i.imgur.com/NSV8AH2.png
             New-PSTask -ComputerName $env:COMPUTERNAME -TaskName "PSWU Install-AllUpdates (AtBoot)" -Command $Command -RunAtBoot
 
             $status = "Restart commence NOW"
-            Write-Log -EventID 4 -Source Install-AllUpdates -EntryType Information -Message $status
+            Write-Log -EventID 5 -Source Install-AllUpdates -EntryType Information -Message $status
             Restart-Computer -Force
             Start-Sleep -Seconds 10
             $status = "WTF (computer did not restart)"
-            Write-Log -EventID 5 -Source Install-AllUpdates -EntryType Error -Message $status
+            Write-Log -EventID 6 -Source Install-AllUpdates -EntryType Error -Message $status
         } 
                
         $UpdateList = Get-UpdateList -SearchObject        
@@ -80,7 +80,6 @@ flowchart: http://i.imgur.com/NSV8AH2.png
             
         if ($UpdatesToInstall -gt 0) {
             Install-Update -ISearchResult $UpdateList @PSBoundParameters
-
             $status = "Returning to start.`r`n"
             $status += "Sending params: $boundparams"
             Write-Log -EventID 7 -Source Install-AllUpdates -EntryType Information -Message $status
@@ -495,7 +494,7 @@ Installs outstanding (non-hidden) updates and reboots the computer if needed.
     if ($rebootstatus -eq $true) {
         $status ="$Computername pending reboot status is: .$rebootstatus. - please reboot before applying further updates."
         Write-Log -EventID 20 -Source Install-Update -EntryType Error -Message $status
-        break
+        return
     }
     
     if (($Computername -ne ".") -and ($Computername -ne $env:COMPUTERNAME) -and ($Computername -ne "localhost") ) {
@@ -964,7 +963,7 @@ Stop-RestartLoop -Restarts 3 -Minutes 10
     )
 
     $SinceDate = (Get-Date).AddMinutes($Minutes)
-    $Result = Get-EventLog -LogName pswu -After $Minutes -InstanceId 4 -ErrorAction SilentlyContinue
+    $Result = Get-EventLog -LogName pswu -After $Minutes -InstanceId 5 -ErrorAction SilentlyContinue
     if ($($Result.Count) -gt $Restarts) {
         $Status = "Restart loop detected. Exiting.`r`n"
         $Status += "There have been $($Result.Count) restarts in the last $Minutes minutes."
